@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { use } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import React from "react";
@@ -16,30 +17,42 @@ import {
   Award,
   MessageSquare,
   CheckCircle,
+  Lock,
 } from "lucide-react";
 import { ChatInterface } from "@/components/chat-interface";
 import { Checkout } from "@/components/payment/checkout-form";
 import { useAuth } from "@/components/auth/auth-provider";
-import { CourseService, type Course } from "@/lib/services/course-service";
+import {
+  CourseService,
+  type Course,
+  type Video,
+} from "@/lib/services/course-service";
+import { VideoPlayer } from "@/components/video-player";
+import { UserAvatar } from "@/components/user-avatar";
 
-export default function CourseDetailPage({
-  params,
-}: {
-  params: { id: string };
-}) {
+// Define type for params
+interface CourseParams {
+  id: string;
+}
+
+export default function CourseDetailPage({ params }: { params: CourseParams }) {
+  // Extract the ID using React.use() to unwrap the params
+  const courseId = React.use(params).id;
+
   const router = useRouter();
   const { user } = useAuth();
   const [course, setCourse] = useState<Course | null>(null);
+  const [videos, setVideos] = useState<Video[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isEnrolled, setIsEnrolled] = useState(false);
   const [showCheckout, setShowCheckout] = useState(false);
-
-  // Unwrap params using React.use()
-  const courseId = React.use(params).id;
+  const [activeVideoIndex, setActiveVideoIndex] = useState(0);
+  const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
 
   useEffect(() => {
-    const fetchCourse = async () => {
+    const fetchCourseData = async () => {
       try {
+        // Fetch course details
         const courseData = await CourseService.getCourseById(courseId);
         setCourse(courseData);
 
@@ -48,8 +61,12 @@ export default function CourseDetailPage({
           const enrolled = await CourseService.isEnrolled(courseId, user.id);
           setIsEnrolled(enrolled);
         }
+
+        // Fetch course videos regardless of enrollment
+        const courseVideos = await CourseService.getCourseVideos(courseId);
+        setVideos(courseVideos);
       } catch (error) {
-        console.error("Error fetching course:", error);
+        console.error("Error fetching course data:", error);
         toast({
           title: "Error",
           description: "Failed to load course details. Please try again.",
@@ -60,7 +77,7 @@ export default function CourseDetailPage({
       }
     };
 
-    fetchCourse();
+    fetchCourseData();
   }, [courseId, user]);
 
   const handleEnroll = () => {
@@ -76,6 +93,34 @@ export default function CourseDetailPage({
     }
 
     setShowCheckout(true);
+  };
+
+  // Calculate total course duration
+  const getTotalDuration = () => {
+    if (!videos || videos.length === 0) return "0 hours";
+
+    const totalSeconds = videos.reduce(
+      (acc, video) => acc + (video.duration || 0),
+      0
+    );
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+
+    if (hours === 0) return `${minutes} minutes`;
+    if (minutes === 0) return `${hours} hours`;
+    return `${hours} hours ${minutes} minutes`;
+  };
+
+  // Format video duration
+  const formatDuration = (seconds: number) => {
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return `${minutes}:${remainingSeconds < 10 ? "0" : ""}${remainingSeconds}`;
+  };
+
+  // Toggle preview video playback
+  const togglePreviewVideo = () => {
+    setIsPreviewPlaying(!isPreviewPlaying);
   };
 
   if (isLoading) {
@@ -98,6 +143,13 @@ export default function CourseDetailPage({
     );
   }
 
+  // Get first video for preview
+  const previewVideo = videos && videos.length > 0 ? videos[0] : null;
+
+  // Get current active video
+  const activeVideo =
+    videos && videos.length > 0 ? videos[activeVideoIndex] : null;
+
   return (
     <div className="container py-10">
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -116,36 +168,51 @@ export default function CourseDetailPage({
               </div>
               <div className="flex items-center">
                 <CheckCircle className="h-5 w-5 text-emerald-600 mr-1" />
-                <span>42 students enrolled</span>
+                <span>{course.student_count || 0} students enrolled</span>
               </div>
               <div className="flex items-center">
                 <Clock className="h-5 w-5 mr-1" />
-                <span>12 hours</span>
+                <span>{getTotalDuration()}</span>
               </div>
               <div className="flex items-center">
                 <FileText className="h-5 w-5 mr-1" />
-                <span>18 videos</span>
+                <span>{videos.length} videos</span>
               </div>
             </div>
 
             <div className="relative h-[400px] w-full rounded-lg overflow-hidden mb-6">
-              <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-10">
-                <Button
-                  size="lg"
-                  className="rounded-full w-16 h-16 bg-emerald-600 hover:bg-emerald-700"
-                >
-                  <Play className="h-8 w-8 ml-1" />
-                </Button>
-              </div>
-              <Image
-                src={
-                  course.thumbnail_url ||
-                  "/placeholder.svg?height=400&width=800"
-                }
-                alt={course.title}
-                fill
-                className="object-cover"
-              />
+              {isPreviewPlaying && previewVideo ? (
+                <VideoPlayer
+                  videoUrl={previewVideo.video_url}
+                  thumbnailUrl={
+                    previewVideo.thumbnail_url || course.thumbnail_url
+                  }
+                  title={previewVideo.title}
+                  transcript={previewVideo.transcript?.content}
+                  onComplete={() => setIsPreviewPlaying(false)}
+                />
+              ) : (
+                <>
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-10">
+                    <Button
+                      size="lg"
+                      className="rounded-full w-16 h-16 bg-emerald-600 hover:bg-emerald-700"
+                      onClick={togglePreviewVideo}
+                    >
+                      <Play className="h-8 w-8 ml-1" />
+                    </Button>
+                  </div>
+                  <Image
+                    src={
+                      course.thumbnail_url ||
+                      "/placeholder.svg?height=400&width=800"
+                    }
+                    alt={course.title}
+                    fill
+                    className="object-cover"
+                  />
+                </>
+              )}
             </div>
           </div>
 
@@ -160,58 +227,78 @@ export default function CourseDetailPage({
               <h2 className="text-xl font-semibold mb-4">Course Content</h2>
 
               <div className="space-y-4">
-                {[
-                  {
-                    title: "Introduction",
-                    lessons: [
-                      { title: "Course Overview", duration: "5:22" },
-                      {
-                        title: "Setting Up Your Environment",
-                        duration: "12:45",
-                      },
-                    ],
-                  },
-                  {
-                    title: "Advanced Component Patterns",
-                    lessons: [
-                      { title: "Compound Components", duration: "18:32" },
-                      { title: "Render Props Pattern", duration: "22:15" },
-                      { title: "Higher-Order Components", duration: "25:40" },
-                    ],
-                  },
-                  {
-                    title: "State Management",
-                    lessons: [
-                      { title: "Context API Deep Dive", duration: "28:17" },
-                      { title: "Advanced Hooks", duration: "31:05" },
-                      { title: "Custom Hooks", duration: "24:30" },
-                    ],
-                  },
-                ].map((section, sectionIndex) => (
-                  <Card key={sectionIndex}>
+                {videos.length > 0 ? (
+                  <Card>
                     <CardContent className="p-0">
                       <div className="p-4 bg-muted font-medium">
-                        {section.title}
+                        Course Videos ({videos.length})
                       </div>
                       <div>
-                        {section.lessons.map((lesson, lessonIndex) => (
+                        {videos.map((video, index) => (
                           <div
-                            key={lessonIndex}
-                            className="p-4 border-t flex justify-between items-center"
+                            key={video.id}
+                            className="p-4 border-t flex justify-between items-center group hover:bg-muted/50 transition-colors cursor-pointer"
+                            onClick={() => {
+                              if (isEnrolled) {
+                                router.push(`/dashboard/courses/${courseId}`);
+                              } else {
+                                // For first video (preview), toggle preview
+                                if (index === 0) {
+                                  togglePreviewVideo();
+                                } else {
+                                  handleEnroll();
+                                }
+                              }
+                            }}
                           >
                             <div className="flex items-center">
-                              <Play className="h-4 w-4 mr-2 text-emerald-600" />
-                              <span>{lesson.title}</span>
+                              {index === 0 ? (
+                                <Play className="h-4 w-4 mr-2 text-emerald-600" />
+                              ) : (
+                                <Lock className="h-4 w-4 mr-2 text-muted-foreground" />
+                              )}
+                              <div>
+                                <span className="font-medium">
+                                  {video.title}
+                                </span>
+                                {index === 0 && (
+                                  <span className="ml-2 text-xs bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded dark:bg-emerald-900 dark:text-emerald-200">
+                                    Preview
+                                  </span>
+                                )}
+                                <p className="text-sm text-muted-foreground">
+                                  {video.description}
+                                </p>
+                              </div>
                             </div>
-                            <span className="text-sm text-muted-foreground">
-                              {lesson.duration}
-                            </span>
+                            <div className="flex items-center">
+                              <span className="text-sm text-muted-foreground">
+                                {formatDuration(video.duration || 0)}
+                              </span>
+                              {!isEnrolled && index !== 0 && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="ml-4 opacity-0 group-hover:opacity-100 transition-opacity"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleEnroll();
+                                  }}
+                                >
+                                  Enroll to unlock
+                                </Button>
+                              )}
+                            </div>
                           </div>
                         ))}
                       </div>
                     </CardContent>
                   </Card>
-                ))}
+                ) : (
+                  <p className="text-muted-foreground">
+                    No videos available for this course yet.
+                  </p>
+                )}
               </div>
             </TabsContent>
 
@@ -219,15 +306,11 @@ export default function CourseDetailPage({
               <Card>
                 <CardContent className="p-6">
                   <div className="flex flex-col md:flex-row gap-6">
-                    <div className="relative h-24 w-24 rounded-full overflow-hidden">
-                      <Image
-                        src={
-                          course.tutor?.avatar_url ||
-                          "/placeholder.svg?height=100&width=100"
-                        }
-                        alt={course.tutor?.full_name || "Instructor"}
-                        fill
-                        className="object-cover"
+                    <div className="relative h-24 w-24">
+                      <UserAvatar
+                        src={course.tutor?.avatar_url}
+                        name={course.tutor?.full_name}
+                        size="lg"
                       />
                     </div>
                     <div className="space-y-4">
@@ -247,7 +330,9 @@ export default function CourseDetailPage({
                           </p>
                         </div>
                         <div>
-                          <p className="font-medium">3,200</p>
+                          <p className="font-medium">
+                            {course.student_count || 0}
+                          </p>
                           <p className="text-sm text-muted-foreground">
                             Students
                           </p>
@@ -337,11 +422,11 @@ export default function CourseDetailPage({
                   <ul className="space-y-2">
                     <li className="flex items-center">
                       <FileText className="h-5 w-5 mr-2 text-emerald-600" />
-                      <span>18 on-demand videos</span>
+                      <span>{videos.length} on-demand videos</span>
                     </li>
                     <li className="flex items-center">
                       <Clock className="h-5 w-5 mr-2 text-emerald-600" />
-                      <span>12 hours of content</span>
+                      <span>{getTotalDuration()} of content</span>
                     </li>
                     <li className="flex items-center">
                       <MessageSquare className="h-5 w-5 mr-2 text-emerald-600" />
@@ -371,7 +456,7 @@ export default function CourseDetailPage({
                     </li>
                     <li className="flex justify-between">
                       <span className="text-muted-foreground">Students:</span>
-                      <span>42</span>
+                      <span>{course.student_count || 0}</span>
                     </li>
                   </ul>
                 </div>

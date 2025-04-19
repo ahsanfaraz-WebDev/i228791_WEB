@@ -1,81 +1,246 @@
-"use client"
+"use client";
 
-import type React from "react"
-
-import { useState, useRef, useEffect } from "react"
-import Image from "next/image"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Send } from "lucide-react"
-import { useAuth } from "@/components/auth/auth-provider"
-import { ChatService, type Message } from "@/lib/services/chat-service"
+import type React from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import Image from "next/image";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Send } from "lucide-react";
+import { useAuth } from "@/components/auth/auth-provider";
+import { ChatService, type Message } from "@/lib/services/chat-service";
+import useSocket from "@/lib/hooks/useSocket";
 
 interface ChatInterfaceProps {
-  courseId: string | number
+  courseId: string | number;
 }
 
 export function ChatInterface({ courseId }: ChatInterfaceProps) {
-  const { user } = useAuth()
-  const [messages, setMessages] = useState<Message[]>([])
-  const [newMessage, setNewMessage] = useState("")
-  const [isLoading, setIsLoading] = useState(false)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const { user } = useAuth();
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [newMessage, setNewMessage] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const {
+    connect,
+    joinCourse,
+    isConnected,
+    on,
+    off,
+    sendMessage: socketSendMessage,
+    sendTyping,
+  } = useSocket({ autoConnect: true });
+
+  // Initialize state with local messages if they exist
+  useEffect(() => {
+    const localMessages = localStorage.getItem(`course-messages-${courseId}`);
+    if (localMessages) {
+      try {
+        const parsedMessages = JSON.parse(localMessages);
+        setMessages(parsedMessages);
+      } catch (error) {
+        console.error("Error parsing local messages:", error);
+      }
+    }
+  }, [courseId]);
 
   // Fetch messages on component mount
   useEffect(() => {
     const fetchMessages = async () => {
       try {
-        const courseMessages = await ChatService.getCourseMessages(courseId.toString())
-        setMessages(courseMessages)
+        const courseMessages = await ChatService.getCourseMessages(
+          courseId.toString()
+        );
+        setMessages(courseMessages);
+
+        // Cache messages locally
+        localStorage.setItem(
+          `course-messages-${courseId}`,
+          JSON.stringify(courseMessages)
+        );
       } catch (error) {
-        console.error("Error fetching messages:", error)
+        console.error("Error fetching messages:", error);
       }
-    }
+    };
 
-    fetchMessages()
-  }, [courseId])
+    fetchMessages();
+  }, [courseId]);
 
-  // Subscribe to new messages
+  // Set up Socket.IO connection
   useEffect(() => {
-    const unsubscribe = ChatService.subscribeToMessages(courseId.toString(), (newMessage) => {
-      setMessages((prevMessages) => [...prevMessages, newMessage])
-    })
+    if (!user) return;
+
+    // Ensure connection is established
+    connect();
+
+    // Cleanup function
+    return () => {
+      // Clean up any subscriptions here if needed
+    };
+  }, [user, connect]);
+
+  // Join course room and listen for events when connection is established
+  useEffect(() => {
+    if (user && isConnected) {
+      console.log("Joining course room:", courseId.toString());
+      joinCourse(courseId.toString());
+
+      // Listen for new messages
+      on("new-message", (message: Message) => {
+        console.log("Received new message via socket:", message);
+        setMessages((prevMessages) => {
+          // Check if message already exists to prevent duplicates
+          const exists = prevMessages.some((m) => m.id === message.id);
+          if (exists) {
+            return prevMessages;
+          }
+
+          // Update local storage cache with new message
+          const updatedMessages = [...prevMessages, message];
+          localStorage.setItem(
+            `course-messages-${courseId}`,
+            JSON.stringify(updatedMessages)
+          );
+
+          return updatedMessages;
+        });
+      });
+
+      // Listen for typing events
+      on("user-typing", (data: { userId: string; isTyping: boolean }) => {
+        if (data.userId !== user.id) {
+          setIsTyping(data.isTyping);
+        }
+      });
+    }
 
     return () => {
-      unsubscribe()
-    }
-  }, [courseId])
+      // Clean up event listeners
+      off("new-message");
+      off("user-typing");
+    };
+  }, [user, isConnected, courseId, joinCourse, on, off]);
+
+  // Subscribe to new messages with Supabase (backup for Socket.IO)
+  useEffect(() => {
+    const unsubscribe = ChatService.subscribeToMessages(
+      courseId.toString(),
+      (newMessage) => {
+        console.log("Received new message via Supabase:", newMessage);
+        setMessages((prevMessages) => {
+          // Check if message already exists to prevent duplicates
+          const exists = prevMessages.some((m) => m.id === newMessage.id);
+          if (exists) {
+            return prevMessages;
+          }
+
+          // Update local storage cache with new message
+          const updatedMessages = [...prevMessages, newMessage];
+          localStorage.setItem(
+            `course-messages-${courseId}`,
+            JSON.stringify(updatedMessages)
+          );
+
+          return updatedMessages;
+        });
+      }
+    );
+
+    return () => {
+      unsubscribe();
+    };
+  }, [courseId]);
 
   // Scroll to bottom when messages change
   useEffect(() => {
-    scrollToBottom()
-  }, [messages])
+    scrollToBottom();
+  }, [messages]);
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  // Handle typing status
+  const handleTyping = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      setNewMessage(e.target.value);
+
+      // Send typing status if connected
+      if (isConnected) {
+        sendTyping(courseId.toString(), e.target.value.length > 0);
+      }
+    },
+    [courseId, isConnected, sendTyping]
+  );
 
   const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault()
+    e.preventDefault();
 
-    if (!newMessage.trim() || !user) return
+    if (!newMessage.trim() || !user) return;
 
-    setIsLoading(true)
+    setIsLoading(true);
+
+    // Add optimistic message immediately for better UX
+    const optimisticId = `temp-${Date.now()}`;
+    const optimisticMessage: Message = {
+      id: optimisticId,
+      course_id: courseId.toString(),
+      user_id: user.id,
+      content: newMessage.trim(),
+      created_at: new Date().toISOString(),
+      user: {
+        id: user.id,
+        full_name: user.user_metadata?.full_name || "You",
+        avatar_url: user.user_metadata?.avatar_url || "",
+        role: user.user_metadata?.role || "student",
+      },
+    };
+
+    // Add optimistic message to UI
+    setMessages((prev) => [...prev, optimisticMessage]);
+    setNewMessage("");
+
+    // Stop typing indicator
+    if (isConnected) {
+      sendTyping(courseId.toString(), false);
+    }
 
     try {
-      await ChatService.sendMessage(courseId.toString(), user.id, newMessage)
-      setNewMessage("")
+      // Try to send via Socket.IO first
+      const socketSuccess = socketSendMessage(
+        courseId.toString(),
+        newMessage.trim()
+      );
+
+      console.log("Socket message sent:", socketSuccess);
+
+      // If Socket.IO fails or isn't connected, use direct API call
+      if (!socketSuccess) {
+        console.log("Falling back to direct API call");
+        const sentMessage = await ChatService.sendMessage(
+          courseId.toString(),
+          user.id,
+          newMessage.trim()
+        );
+
+        // Replace optimistic message with real one
+        setMessages((prev) =>
+          prev.map((msg) => (msg.id === optimisticId ? sentMessage : msg))
+        );
+      }
     } catch (error) {
-      console.error("Error sending message:", error)
+      console.error("Error sending message:", error);
+      // Remove optimistic message on error
+      setMessages((prev) => prev.filter((msg) => msg.id !== optimisticId));
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
-  }
+  };
 
   const formatTime = (dateString: string) => {
-    const date = new Date(dateString)
-    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-  }
+    const date = new Date(dateString);
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  };
 
   return (
     <div className="flex flex-col h-[500px]">
@@ -86,15 +251,27 @@ export function ChatInterface({ courseId }: ChatInterfaceProps) {
           </div>
         ) : (
           messages.map((message) => (
-            <div key={message.id} className={`flex ${message.user_id === user?.id ? "justify-end" : "justify-start"}`}>
-              <div className={`flex max-w-[80%] ${message.user_id === user?.id ? "flex-row-reverse" : "flex-row"}`}>
+            <div
+              key={message.id}
+              className={`flex ${
+                message.user_id === user?.id ? "justify-end" : "justify-start"
+              }`}
+            >
+              <div
+                className={`flex max-w-[80%] ${
+                  message.user_id === user?.id ? "flex-row-reverse" : "flex-row"
+                }`}
+              >
                 <div
                   className={`relative h-8 w-8 rounded-full overflow-hidden ${
                     message.user_id === user?.id ? "ml-2" : "mr-2"
                   }`}
                 >
                   <Image
-                    src={message.user?.avatar_url || "/placeholder.svg?height=40&width=40"}
+                    src={
+                      message.user?.avatar_url ||
+                      "/placeholder.svg?height=40&width=40"
+                    }
                     alt={message.user?.full_name || "User"}
                     fill
                     className="object-cover"
@@ -105,18 +282,22 @@ export function ChatInterface({ courseId }: ChatInterfaceProps) {
                     message.user_id === user?.id
                       ? "bg-emerald-600 text-white"
                       : message.user?.role === "tutor"
-                        ? "bg-blue-100 dark:bg-blue-900"
-                        : "bg-gray-100 dark:bg-gray-800"
+                      ? "bg-blue-100 dark:bg-blue-900"
+                      : "bg-gray-100 dark:bg-gray-800"
                   }`}
                 >
                   <div className="flex justify-between items-center mb-1">
                     <span className="font-medium text-sm">
                       {message.user?.full_name || "Unknown User"}
                       {message.user?.role === "tutor" && (
-                        <span className="ml-1 text-xs bg-blue-200 dark:bg-blue-800 px-1.5 py-0.5 rounded">Tutor</span>
+                        <span className="ml-1 text-xs bg-blue-200 dark:bg-blue-800 px-1.5 py-0.5 rounded">
+                          Tutor
+                        </span>
                       )}
                     </span>
-                    <span className="text-xs opacity-70 ml-2">{formatTime(message.created_at)}</span>
+                    <span className="text-xs opacity-70 ml-2">
+                      {formatTime(message.created_at)}
+                    </span>
                   </div>
                   <p className="text-sm">{message.content}</p>
                 </div>
@@ -124,13 +305,33 @@ export function ChatInterface({ courseId }: ChatInterfaceProps) {
             </div>
           ))
         )}
+        {isTyping && (
+          <div className="flex justify-start">
+            <div className="bg-gray-100 dark:bg-gray-800 rounded-lg px-3 py-2">
+              <div className="flex space-x-1">
+                <div
+                  className="w-2 h-2 rounded-full bg-gray-400 animate-bounce"
+                  style={{ animationDelay: "0ms" }}
+                ></div>
+                <div
+                  className="w-2 h-2 rounded-full bg-gray-400 animate-bounce"
+                  style={{ animationDelay: "150ms" }}
+                ></div>
+                <div
+                  className="w-2 h-2 rounded-full bg-gray-400 animate-bounce"
+                  style={{ animationDelay: "300ms" }}
+                ></div>
+              </div>
+            </div>
+          </div>
+        )}
         <div ref={messagesEndRef} />
       </div>
 
       <form onSubmit={handleSendMessage} className="border-t p-4 flex gap-2">
         <Input
           value={newMessage}
-          onChange={(e) => setNewMessage(e.target.value)}
+          onChange={handleTyping}
           placeholder="Type your message..."
           className="flex-1"
           disabled={!user || isLoading}
@@ -145,5 +346,5 @@ export function ChatInterface({ courseId }: ChatInterfaceProps) {
         </Button>
       </form>
     </div>
-  )
+  );
 }

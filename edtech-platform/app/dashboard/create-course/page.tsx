@@ -2,8 +2,9 @@
 
 import type React from "react";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -27,11 +28,16 @@ import { toast } from "@/components/ui/use-toast";
 import { Upload, Plus, X } from "lucide-react";
 import { useAuth } from "@/components/auth/auth-provider";
 import { CourseService } from "@/lib/services/course-service";
+import { CloudinaryService } from "@/lib/services/cloudinary-service";
+import { formatStorageUrl } from "@/lib/utils";
 
 export default function CreateCoursePage() {
   const router = useRouter();
   const { user } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
+  const [thumbnailFile, setThumbnailFile] = useState<File | null>(null);
+  const [thumbnailPreview, setThumbnailPreview] = useState<string | null>(null);
+  const thumbnailInputRef = useRef<HTMLInputElement>(null);
   const [videos, setVideos] = useState<
     { title: string; description: string; file: File | null }[]
   >([{ title: "", description: "", file: null }]);
@@ -72,6 +78,21 @@ export default function CreateCoursePage() {
     setVideos(newVideos);
   };
 
+  const handleThumbnailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] || null;
+    if (file) {
+      setThumbnailFile(file);
+
+      // Create preview URL for immediate display
+      const previewUrl = URL.createObjectURL(file);
+      setThumbnailPreview(previewUrl);
+    }
+  };
+
+  const handleThumbnailClick = () => {
+    thumbnailInputRef.current?.click();
+  };
+
   const handleInputChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
   ) => {
@@ -109,22 +130,146 @@ export default function CreateCoursePage() {
       return;
     }
 
+    // Validate form data
+    if (!courseData.title.trim()) {
+      toast({
+        title: "Missing information",
+        description: "Please provide a course title.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!courseData.description.trim()) {
+      toast({
+        title: "Missing information",
+        description: "Please provide a course description.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!courseData.price || isNaN(Number.parseFloat(courseData.price))) {
+      toast({
+        title: "Invalid price",
+        description: "Please provide a valid price for the course.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsLoading(true);
 
     try {
-      // Create the course in Supabase
+      // First create the course without thumbnail
+      toast({
+        title: "Creating course...",
+        description: "Please wait while we create your course.",
+      });
+
+      // Initially create course with default thumbnail
       const newCourse = await CourseService.createCourse({
         title: courseData.title,
         description: courseData.description,
         price: Number.parseFloat(courseData.price),
         level: courseData.level,
-        thumbnail_url: courseData.thumbnail_url,
+        thumbnail_url: courseData.thumbnail_url, // Start with default
         published: courseData.published,
         tutor_id: user.id,
       });
 
-      // In a real app, you would upload videos and create video records
-      // For now, we'll just simulate success
+      console.log("Course created successfully:", newCourse);
+
+      // Now that we have a course ID, try to upload the thumbnail
+      let thumbnailUrl = courseData.thumbnail_url;
+
+      if (thumbnailFile && newCourse.id) {
+        try {
+          toast({
+            title: "Uploading thumbnail...",
+            description: "Please wait while we upload your thumbnail image.",
+          });
+
+          // Upload thumbnail to Cloudinary and get the URL
+          thumbnailUrl = await CloudinaryService.uploadCourseThumbnail(
+            thumbnailFile,
+            newCourse.id
+          );
+
+          // Update the course with the new thumbnail URL
+          await CourseService.updateCourse(newCourse.id, {
+            thumbnail_url: thumbnailUrl,
+          });
+
+          console.log("Thumbnail uploaded successfully:", thumbnailUrl);
+        } catch (uploadError: any) {
+          console.error("Thumbnail upload failed:", uploadError);
+          toast({
+            title: "Thumbnail upload failed",
+            description:
+              uploadError.message ||
+              "We'll continue with a placeholder image instead.",
+            variant: "destructive",
+          });
+          // Keep using the default placeholder
+        }
+      }
+
+      // Upload videos if course was created successfully
+      if (newCourse && newCourse.id) {
+        const validVideos = videos.filter((v) => v.title && v.file);
+
+        if (validVideos.length > 0) {
+          toast({
+            title: "Uploading videos...",
+            description: `Please wait while we upload ${validVideos.length} video(s).`,
+          });
+        }
+
+        for (let i = 0; i < videos.length; i++) {
+          const video = videos[i];
+
+          // Skip if no title or file
+          if (!video.title || !video.file) continue;
+
+          try {
+            // Upload the video file to Cloudinary
+            console.log(
+              `Uploading video ${i + 1}/${validVideos.length}: ${video.title}`
+            );
+            const videoUrl = await CloudinaryService.uploadVideo(
+              video.file,
+              newCourse.id
+            );
+
+            // Get an auto-generated thumbnail for the video
+            const videoThumbnail =
+              CloudinaryService.getVideoThumbnail(videoUrl);
+
+            // Create a video record in the database
+            await CourseService.createVideo({
+              course_id: newCourse.id,
+              title: video.title,
+              description: video.description || "",
+              video_url: videoUrl,
+              thumbnail_url: videoThumbnail, // Use auto-generated video thumbnail
+              position: i + 1, // 1-based position
+              duration: 0, // This would be calculated from the actual video in production
+            });
+
+            console.log(`Video ${i + 1} uploaded and added to course`);
+          } catch (videoError: any) {
+            console.error(`Error uploading video ${i + 1}:`, videoError);
+            toast({
+              title: `Video ${i + 1} upload failed`,
+              description:
+                videoError.message || "An error occurred uploading this video.",
+              variant: "destructive",
+            });
+            // Continue with the next video rather than stopping the whole process
+          }
+        }
+      }
 
       toast({
         title: "Course created!",
@@ -231,17 +376,35 @@ export default function CreateCoursePage() {
               <div className="space-y-2">
                 <Label htmlFor="thumbnail">Course Thumbnail</Label>
                 <div className="flex items-center gap-4">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="w-full h-32 border-dashed flex flex-col items-center justify-center gap-2"
+                  <input
+                    type="file"
+                    id="thumbnail"
+                    ref={thumbnailInputRef}
+                    className="hidden"
+                    accept="image/*"
+                    onChange={handleThumbnailChange}
+                  />
+                  <div
+                    className="w-full h-32 border rounded-lg overflow-hidden cursor-pointer relative"
+                    onClick={handleThumbnailClick}
                   >
-                    <Upload className="h-6 w-6" />
-                    <span>Upload Image</span>
-                    <span className="text-xs text-muted-foreground">
-                      Recommended: 1280×720px
-                    </span>
-                  </Button>
+                    {thumbnailPreview ? (
+                      <Image
+                        src={thumbnailPreview}
+                        alt="Thumbnail preview"
+                        fill
+                        className="object-cover"
+                      />
+                    ) : (
+                      <div className="w-full h-full border-dashed flex flex-col items-center justify-center gap-2">
+                        <Upload className="h-6 w-6" />
+                        <span>Upload Image</span>
+                        <span className="text-xs text-muted-foreground">
+                          Recommended: 1280×720px
+                        </span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </CardContent>
@@ -300,20 +463,22 @@ export default function CreateCoursePage() {
 
                   <div className="space-y-2">
                     <Label htmlFor={`video-file-${index}`}>Video File</Label>
+                    <input
+                      type="file"
+                      id={`video-file-${index}`}
+                      className="hidden"
+                      accept="video/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0] || null;
+                        updateVideoFile(index, file);
+                      }}
+                    />
                     <Button
                       type="button"
                       variant="outline"
                       className="w-full h-20 border-dashed flex flex-col items-center justify-center gap-1"
                       onClick={() => {
-                        const input = document.createElement("input");
-                        input.type = "file";
-                        input.accept = "video/*";
-                        input.onchange = (e) => {
-                          const file =
-                            (e.target as HTMLInputElement).files?.[0] || null;
-                          updateVideoFile(index, file);
-                        };
-                        input.click();
+                        document.getElementById(`video-file-${index}`)?.click();
                       }}
                     >
                       <Upload className="h-5 w-5" />

@@ -14,6 +14,7 @@ type AuthContextType = {
   signUp: (email: string, password: string, metadata: any) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
+  getToken: () => Promise<string | null>;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -64,6 +65,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       subscription.unsubscribe();
     };
   }, []);
+
+  const getToken = async (): Promise<string | null> => {
+    try {
+      const { data, error } = await supabase.auth.getSession();
+
+      if (error || !data.session) {
+        console.error("Error getting token:", error);
+        return null;
+      }
+
+      return data.session.access_token;
+    } catch (error) {
+      console.error("Error getting token:", error);
+      return null;
+    }
+  };
 
   const signUp = async (email: string, password: string, metadata: any) => {
     try {
@@ -131,6 +148,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signUp,
     signIn,
     signOut,
+    getToken,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -16,7 +16,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { VideoPlayer } from "@/components/video-player";
 import { ChatInterface } from "@/components/chat-interface";
-import { Play, Users, MessageSquare, FileText, Edit } from "lucide-react";
+import {
+  Play,
+  Users,
+  MessageSquare,
+  FileText,
+  Edit,
+  CheckCircle2,
+} from "lucide-react";
 import { useAuth } from "@/components/auth/auth-provider";
 import {
   CourseService,
@@ -38,6 +45,14 @@ export default function CourseDashboardPage({
   const [userRole, setUserRole] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [students, setStudents] = useState<any[]>([]);
+  const [enrollmentId, setEnrollmentId] = useState<string | null>(null);
+  const [courseProgress, setCourseProgress] = useState(0);
+  const [videoProgress, setVideoProgress] = useState<Record<string, boolean>>(
+    {}
+  );
+  const [videoWatchTimes, setVideoWatchTimes] = useState<
+    Record<string, number>
+  >({});
 
   // Unwrap params using React.use()
   const courseId = React.use(params).id;
@@ -67,6 +82,42 @@ export default function CourseDashboardPage({
         // Fetch course videos
         const videosData = await CourseService.getCourseVideos(courseId);
         setVideos(videosData);
+
+        // If student, get enrollment ID and progress
+        if (profile?.role === "student") {
+          const { data: enrollment } = await supabase
+            .from("enrollments")
+            .select("id")
+            .eq("course_id", courseId)
+            .eq("student_id", user.id)
+            .maybeSingle();
+
+          if (enrollment) {
+            setEnrollmentId(enrollment.id);
+
+            // Fetch course progress
+            const progress = await CourseService.calculateCourseProgress(
+              enrollment.id,
+              courseId
+            );
+            setCourseProgress(progress);
+
+            // Fetch individual video progress
+            const progressData = await CourseService.getStudentProgress(
+              enrollment.id
+            );
+            const videoProgressMap: Record<string, boolean> = {};
+            const videoWatchTimesMap: Record<string, number> = {};
+
+            progressData.forEach((item) => {
+              videoProgressMap[item.video_id] = item.completed;
+              videoWatchTimesMap[item.video_id] = item.watched_seconds;
+            });
+
+            setVideoProgress(videoProgressMap);
+            setVideoWatchTimes(videoWatchTimesMap);
+          }
+        }
 
         // If tutor, fetch enrolled students
         if (profile?.role === "tutor") {
@@ -116,16 +167,66 @@ export default function CourseDashboardPage({
   const activeVideo = videos[activeVideoIndex] || null;
 
   const handleVideoProgress = async (currentTime: number, duration: number) => {
-    // In a real app, you would save progress to the database
-    console.log(`Progress: ${currentTime}/${duration}`);
+    if (!user || !activeVideo || !enrollmentId) return;
+
+    try {
+      // Mark as completed if within 5 seconds of the end
+      const isCompleted = duration - currentTime <= 5;
+
+      await CourseService.updateProgress(
+        enrollmentId,
+        activeVideo.id,
+        currentTime,
+        isCompleted
+      );
+
+      // Only log to console in development
+      if (process.env.NODE_ENV === "development") {
+        console.log(`Progress saved: ${currentTime}/${duration}`);
+      }
+    } catch (error) {
+      console.error("Error saving video progress:", error);
+    }
   };
 
   const handleVideoComplete = async () => {
-    // In a real app, you would mark the video as completed
-    toast({
-      title: "Video completed!",
-      description: "Your progress has been saved.",
-    });
+    if (!user || !activeVideo || !enrollmentId) return;
+
+    try {
+      await CourseService.updateProgress(
+        enrollmentId,
+        activeVideo.id,
+        activeVideo.duration,
+        true
+      );
+
+      // Update local state
+      setVideoProgress((prev) => ({
+        ...prev,
+        [activeVideo.id]: true,
+      }));
+
+      toast({
+        title: "Video completed!",
+        description: "Your progress has been saved.",
+      });
+
+      // Get updated progress data
+      if (userRole === "student") {
+        const progress = await CourseService.calculateCourseProgress(
+          enrollmentId,
+          courseId
+        );
+        setCourseProgress(progress);
+      }
+    } catch (error) {
+      console.error("Error saving video completion:", error);
+      toast({
+        title: "Error",
+        description: "Failed to save your progress. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   if (!user) {
@@ -196,6 +297,7 @@ export default function CourseDashboardPage({
                   }
                   title={activeVideo.title}
                   transcript={activeVideo.transcript?.content}
+                  initialProgress={videoWatchTimes[activeVideo.id] || 0}
                   onProgress={handleVideoProgress}
                   onComplete={handleVideoComplete}
                 />
@@ -223,13 +325,23 @@ export default function CourseDashboardPage({
                 </CardHeader>
                 <CardContent>
                   {activeVideo?.transcript ? (
-                    <p className="whitespace-pre-line">
+                    <div className="whitespace-pre-line prose prose-slate dark:prose-invert max-w-none">
                       {activeVideo.transcript.content}
-                    </p>
+                    </div>
                   ) : (
-                    <p className="text-muted-foreground">
-                      No transcript available for this video.
-                    </p>
+                    <div className="text-muted-foreground">
+                      <p>No transcript available for this video.</p>
+                      {userRole === "tutor" && (
+                        <div className="mt-4 p-4 border rounded-md bg-muted/50">
+                          <h4 className="font-medium mb-2">Tutor Note</h4>
+                          <p className="text-sm">
+                            To add a transcript for this video, you can update
+                            the video in the course editor. Transcripts help
+                            students follow along and improve accessibility.
+                          </p>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </CardContent>
               </Card>
@@ -254,11 +366,8 @@ export default function CourseDashboardPage({
               </CardTitle>
               {userRole === "student" && (
                 <CardDescription>
-                  Your progress: {Math.floor(Math.random() * 100)}%
-                  <Progress
-                    value={Math.floor(Math.random() * 100)}
-                    className="mt-2"
-                  />
+                  Your progress: {courseProgress}%
+                  <Progress value={courseProgress} className="mt-2" />
                 </CardDescription>
               )}
             </CardHeader>
@@ -286,9 +395,20 @@ export default function CourseDashboardPage({
                         <div className="absolute inset-0 flex items-center justify-center bg-black/30">
                           <Play className="h-6 w-6 text-white" />
                         </div>
+                        {videoProgress[video.id] && (
+                          <div className="absolute top-1 right-1">
+                            <CheckCircle2 className="h-5 w-5 text-emerald-500 bg-white rounded-full" />
+                          </div>
+                        )}
                       </div>
-                      <div>
-                        <p className="font-medium">{video.title}</p>
+                      <div className="flex-1">
+                        <p
+                          className={`font-medium ${
+                            videoProgress[video.id] ? "text-emerald-600" : ""
+                          }`}
+                        >
+                          {video.title}
+                        </p>
                         <p className="text-sm text-muted-foreground">
                           {formatDuration(video.duration)}
                         </p>

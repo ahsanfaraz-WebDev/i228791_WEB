@@ -91,7 +91,7 @@ const fallbackData = {
 
 export async function GET(req: Request) {
   try {
-    const supabase = createClient();
+    const supabase = await createClient();
     const { searchParams } = new URL(req.url);
     const contentType = searchParams.get("type");
 

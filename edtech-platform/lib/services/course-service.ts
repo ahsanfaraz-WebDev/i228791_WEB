@@ -11,6 +11,7 @@ export type Course = {
   published: boolean;
   created_at: string;
   updated_at: string;
+  student_count?: number;
   tutor?: {
     id: string;
     full_name: string;
@@ -180,6 +181,24 @@ export const CourseService = {
     }
 
     return true;
+  },
+
+  // Create a new video for a course
+  async createVideo(videoData: Partial<Video>) {
+    const supabase = createClient();
+
+    const { data, error } = await supabase
+      .from("videos")
+      .insert(videoData)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error creating video:", error);
+      throw error;
+    }
+
+    return data as Video;
   },
 
   // Enroll a student in a course

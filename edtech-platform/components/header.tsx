@@ -171,6 +171,16 @@ export function Header() {
                     </Link>
                   </Button>
                   <Button
+                    asChild
+                    variant="outline"
+                    size="sm"
+                    className="rounded-full"
+                  >
+                    <Link href="/profile" onClick={() => setIsMenuOpen(false)}>
+                      Profile
+                    </Link>
+                  </Button>
+                  <Button
                     size="sm"
                     variant="outline"
                     className="text-red-500 rounded-full"

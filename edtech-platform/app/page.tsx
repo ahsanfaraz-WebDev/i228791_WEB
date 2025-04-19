@@ -1,46 +1,37 @@
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
-import LandingHero from "@/components/landing-hero"
-import FeatureSection from "@/components/feature-section"
-import HowItWorks from "@/components/how-it-works"
-import Testimonials from "@/components/testimonials"
-import Footer from "@/components/footer"
+import { Features } from "@/components/features"
+import { Testimonials } from "@/components/testimonials"
+import { HeroSection } from "@/components/hero-section"
 
 export default function Home() {
   return (
-    <main className="flex min-h-screen flex-col">
-      <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="container flex h-16 items-center justify-between">
-          <div className="flex items-center gap-2 font-bold text-xl">
-            <span className="text-primary">Edu</span>Verse
-          </div>
-          <nav className="hidden md:flex items-center gap-6">
-            <Link href="#features" className="text-sm font-medium hover:text-primary">
-              Features
-            </Link>
-            <Link href="#how-it-works" className="text-sm font-medium hover:text-primary">
-              How It Works
-            </Link>
-            <Link href="#testimonials" className="text-sm font-medium hover:text-primary">
-              Testimonials
-            </Link>
-          </nav>
-          <div className="flex items-center gap-4">
-            <Link href="/login">
-              <Button variant="outline">Log In</Button>
-            </Link>
-            <Link href="/signup">
-              <Button>Sign Up</Button>
-            </Link>
+    <div className="min-h-screen">
+      <HeroSection />
+      <Features />
+      <Testimonials />
+      <section className="py-20 bg-gradient-to-b from-slate-50 to-white">
+        <div className="container px-4 md:px-6">
+          <div className="flex flex-col items-center justify-center space-y-4 text-center">
+            <div className="space-y-2">
+              <h2 className="text-3xl font-bold tracking-tighter sm:text-4xl md:text-5xl">
+                Ready to Transform Your Learning Experience?
+              </h2>
+              <p className="mx-auto max-w-[700px] text-gray-500 md:text-xl">
+                Join thousands of tutors and students already using our platform.
+              </p>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-4">
+              <Button asChild size="lg" className="bg-emerald-600 hover:bg-emerald-700">
+                <Link href="/register">Get Started</Link>
+              </Button>
+              <Button asChild variant="outline" size="lg">
+                <Link href="/courses">Browse Courses</Link>
+              </Button>
+            </div>
           </div>
         </div>
-      </header>
-
-      <LandingHero />
-      <FeatureSection />
-      <HowItWorks />
-      <Testimonials />
-      <Footer />
-    </main>
+      </section>
+    </div>
   )
 }

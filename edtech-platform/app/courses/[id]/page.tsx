@@ -1,293 +1,320 @@
-import { redirect } from "next/navigation"
-import { getServerSession } from "next-auth/next"
-import { connectToDatabase } from "@/lib/mongodb"
-import { ObjectId } from "mongodb"
+"use client"
+
+import { useState, useEffect } from "react"
+import Image from "next/image"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
+import { Card, CardContent } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { BookOpen, Clock, Users, Video } from "lucide-react"
-import ChatRoom from "@/components/chat-room"
+import { toast } from "@/components/ui/use-toast"
+import { Play, Star, Clock, FileText, Award, MessageSquare, CheckCircle } from "lucide-react"
+import { ChatInterface } from "@/components/chat-interface"
+import { Checkout } from "@/components/payment/checkout-form"
+import { useAuth } from "@/components/auth/auth-provider"
+import { CourseService, type Course } from "@/lib/services/course-service"
 
-interface CoursePageProps {
-  params: {
-    id: string
+export default function CourseDetailPage({ params }: { params: { id: string } }) {
+  const router = useRouter()
+  const { user } = useAuth()
+  const [course, setCourse] = useState<Course | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [isEnrolled, setIsEnrolled] = useState(false)
+  const [showCheckout, setShowCheckout] = useState(false)
+
+  useEffect(() => {
+    const fetchCourse = async () => {
+      try {
+        const courseData = await CourseService.getCourseById(params.id)
+        setCourse(courseData)
+
+        // Check if user is enrolled
+        if (user) {
+          const enrolled = await CourseService.isEnrolled(params.id, user.id)
+          setIsEnrolled(enrolled)
+        }
+      } catch (error) {
+        console.error("Error fetching course:", error)
+        toast({
+          title: "Error",
+          description: "Failed to load course details. Please try again.",
+          variant: "destructive",
+        })
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchCourse()
+  }, [params.id, user])
+
+  const handleEnroll = () => {
+    if (!user) {
+      // Redirect to login if not authenticated
+      toast({
+        title: "Authentication required",
+        description: "Please log in or create an account to enroll in this course.",
+      })
+      router.push(`/login?redirect=/courses/${params.id}`)
+      return
+    }
+
+    setShowCheckout(true)
   }
-}
 
-export default async function CoursePage({ params }: CoursePageProps) {
-  const session = await getServerSession()
-
-  if (!session?.user) {
-    redirect("/login")
-  }
-
-  const { db } = await connectToDatabase()
-
-  // Get user from session
-  const user = await db.collection("users").findOne({ email: session.user.email })
-
-  if (!user) {
-    redirect("/login")
-  }
-
-  // Get course
-  const course = await db.collection("courses").findOne({
-    _id: new ObjectId(params.id),
-  })
-
-  if (!course) {
-    redirect("/courses")
-  }
-
-  // Check if user is instructor or enrolled student
-  const isInstructor = course.instructorId.equals(user._id)
-  const isEnrolled = course.students.some((studentId: ObjectId) => studentId.equals(user._id))
-
-  if (!isInstructor && !isEnrolled) {
-    // User is not enrolled, show course preview
+  if (isLoading) {
     return (
-      <div className="container py-6 md:py-12">
-        <div className="flex flex-col gap-8">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">{course.title}</h1>
-            <p className="text-muted-foreground">Instructor: {course.instructorName}</p>
-          </div>
-
-          <div className="grid md:grid-cols-3 gap-8">
-            <div className="md:col-span-2 space-y-6">
-              <div>
-                <h2 className="text-xl font-bold mb-2">About this course</h2>
-                <p>{course.description}</p>
-              </div>
-
-              <div>
-                <h2 className="text-xl font-bold mb-2">What you'll learn</h2>
-                <ul className="list-disc pl-5 space-y-1">
-                  <li>Course learning objective 1</li>
-                  <li>Course learning objective 2</li>
-                  <li>Course learning objective 3</li>
-                </ul>
-              </div>
-
-              <div>
-                <h2 className="text-xl font-bold mb-2">Course content preview</h2>
-                <div className="border rounded-lg overflow-hidden">
-                  <div className="p-4 border-b flex justify-between items-center">
-                    <div className="flex items-center gap-2">
-                      <Video className="h-4 w-4 text-muted-foreground" />
-                      <span>{course.videos?.length || 0} videos</span>
-                    </div>
-                    <span className="text-sm text-muted-foreground">
-                      {course.videos?.length ? "Some content locked" : "No videos yet"}
-                    </span>
-                  </div>
-
-                  {course.videos?.length > 0 ? (
-                    <div className="divide-y">
-                      {course.videos.slice(0, 2).map((videoId: ObjectId, index: number) => (
-                        <div key={index} className="p-4 flex justify-between items-center">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium">
-                              {index + 1}. Video title {index + 1}
-                            </span>
-                            {index === 0 && (
-                              <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">
-                                Preview
-                              </span>
-                            )}
-                          </div>
-                          <span className="text-sm text-muted-foreground">10:30</span>
-                        </div>
-                      ))}
-
-                      <div className="p-4 flex justify-between items-center bg-muted/50">
-                        <span className="text-sm font-medium">Enroll to unlock all {course.videos.length} videos</span>
-                        <span className="text-sm text-muted-foreground">🔒</span>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="p-8 text-center text-muted-foreground">No preview available</div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <div className="border rounded-lg overflow-hidden sticky top-20">
-                <div className="aspect-video bg-muted flex items-center justify-center">
-                  <img
-                    src="/placeholder.svg?height=200&width=400"
-                    alt={course.title}
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-                <div className="p-6 space-y-6">
-                  <div className="text-3xl font-bold">{course.price ? `$${course.price}` : "Free"}</div>
-
-                  <Button className="w-full">Enroll Now</Button>
-
-                  <div className="space-y-4 pt-4 border-t">
-                    <div className="flex items-center gap-2">
-                      <Users className="h-4 w-4 text-muted-foreground" />
-                      <span>{course.students?.length || 0} students enrolled</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Video className="h-4 w-4 text-muted-foreground" />
-                      <span>{course.videos?.length || 0} videos</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Clock className="h-4 w-4 text-muted-foreground" />
-                      <span>Full lifetime access</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <BookOpen className="h-4 w-4 text-muted-foreground" />
-                      <span>Certificate of completion</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+      <div className="container py-10 flex items-center justify-center min-h-[60vh]">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600"></div>
       </div>
     )
   }
 
-  // Get videos for the course
-  const videos = await db
-    .collection("videos")
-    .find({ courseId: new ObjectId(params.id) })
-    .toArray()
+  if (!course) {
+    return (
+      <div className="container py-10">
+        <h1 className="text-3xl font-bold mb-4">Course not found</h1>
+        <p>The course you're looking for doesn't exist or has been removed.</p>
+        <Button asChild className="mt-4">
+          <a href="/courses">Browse Courses</a>
+        </Button>
+      </div>
+    )
+  }
 
-  // User is enrolled or is the instructor, show full course
   return (
-    <div className="container py-6 md:py-12">
-      <div className="flex flex-col gap-8">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">{course.title}</h1>
-          <p className="text-muted-foreground">Instructor: {course.instructorName}</p>
+    <div className="container py-10">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-2 space-y-8">
+          <div>
+            <h1 className="text-3xl font-bold mb-4">{course.title}</h1>
+            <p className="text-lg text-gray-700 dark:text-gray-300 mb-6">{course.description}</p>
+
+            <div className="flex flex-wrap gap-4 mb-6">
+              <div className="flex items-center">
+                <Star className="h-5 w-5 fill-current text-yellow-500 mr-1" />
+                <span className="font-medium mr-1">4.8</span>
+                <span className="text-muted-foreground">(24 reviews)</span>
+              </div>
+              <div className="flex items-center">
+                <CheckCircle className="h-5 w-5 text-emerald-600 mr-1" />
+                <span>42 students enrolled</span>
+              </div>
+              <div className="flex items-center">
+                <Clock className="h-5 w-5 mr-1" />
+                <span>12 hours</span>
+              </div>
+              <div className="flex items-center">
+                <FileText className="h-5 w-5 mr-1" />
+                <span>18 videos</span>
+              </div>
+            </div>
+
+            <div className="relative h-[400px] w-full rounded-lg overflow-hidden mb-6">
+              <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-10">
+                <Button size="lg" className="rounded-full w-16 h-16 bg-emerald-600 hover:bg-emerald-700">
+                  <Play className="h-8 w-8 ml-1" />
+                </Button>
+              </div>
+              <Image
+                src={course.thumbnail_url || "/placeholder.svg?height=400&width=800"}
+                alt={course.title}
+                fill
+                className="object-cover"
+              />
+            </div>
+          </div>
+
+          <Tabs defaultValue="syllabus">
+            <TabsList className="grid grid-cols-3 mb-4">
+              <TabsTrigger value="syllabus">Syllabus</TabsTrigger>
+              <TabsTrigger value="instructor">Instructor</TabsTrigger>
+              <TabsTrigger value="discussion">Discussion</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="syllabus" className="space-y-4">
+              <h2 className="text-xl font-semibold mb-4">Course Content</h2>
+
+              <div className="space-y-4">
+                {[
+                  {
+                    title: "Introduction",
+                    lessons: [
+                      { title: "Course Overview", duration: "5:22" },
+                      { title: "Setting Up Your Environment", duration: "12:45" },
+                    ],
+                  },
+                  {
+                    title: "Advanced Component Patterns",
+                    lessons: [
+                      { title: "Compound Components", duration: "18:32" },
+                      { title: "Render Props Pattern", duration: "22:15" },
+                      { title: "Higher-Order Components", duration: "25:40" },
+                    ],
+                  },
+                  {
+                    title: "State Management",
+                    lessons: [
+                      { title: "Context API Deep Dive", duration: "28:17" },
+                      { title: "Advanced Hooks", duration: "31:05" },
+                      { title: "Custom Hooks", duration: "24:30" },
+                    ],
+                  },
+                ].map((section, sectionIndex) => (
+                  <Card key={sectionIndex}>
+                    <CardContent className="p-0">
+                      <div className="p-4 bg-muted font-medium">{section.title}</div>
+                      <div>
+                        {section.lessons.map((lesson, lessonIndex) => (
+                          <div key={lessonIndex} className="p-4 border-t flex justify-between items-center">
+                            <div className="flex items-center">
+                              <Play className="h-4 w-4 mr-2 text-emerald-600" />
+                              <span>{lesson.title}</span>
+                            </div>
+                            <span className="text-sm text-muted-foreground">{lesson.duration}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </TabsContent>
+
+            <TabsContent value="instructor">
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex flex-col md:flex-row gap-6">
+                    <div className="relative h-24 w-24 rounded-full overflow-hidden">
+                      <Image
+                        src={course.tutor?.avatar_url || "/placeholder.svg?height=100&width=100"}
+                        alt={course.tutor?.full_name || "Instructor"}
+                        fill
+                        className="object-cover"
+                      />
+                    </div>
+                    <div className="space-y-4">
+                      <div>
+                        <h3 className="text-xl font-semibold">{course.tutor?.full_name || "Instructor"}</h3>
+                        <p className="text-muted-foreground">Course Instructor</p>
+                      </div>
+                      <div className="flex gap-4">
+                        <div>
+                          <p className="font-medium">8</p>
+                          <p className="text-sm text-muted-foreground">Courses</p>
+                        </div>
+                        <div>
+                          <p className="font-medium">3,200</p>
+                          <p className="text-sm text-muted-foreground">Students</p>
+                        </div>
+                        <div>
+                          <p className="font-medium">4.8</p>
+                          <p className="text-sm text-muted-foreground">Rating</p>
+                        </div>
+                      </div>
+                      <p>{course.tutor?.bio || "No bio available."}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="discussion">
+              <Card>
+                <CardContent className="p-6">
+                  {isEnrolled ? (
+                    <ChatInterface courseId={params.id} />
+                  ) : (
+                    <div className="text-center py-8">
+                      <h3 className="text-lg font-medium mb-2">Join the discussion</h3>
+                      <p className="text-muted-foreground mb-4">
+                        Enroll in this course to participate in the discussion forum.
+                      </p>
+                      <Button onClick={handleEnroll} className="bg-emerald-600 hover:bg-emerald-700">
+                        Enroll Now
+                      </Button>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
         </div>
 
-        <Tabs defaultValue="content" className="w-full">
-          <TabsList className="grid w-full md:w-[400px] grid-cols-3">
-            <TabsTrigger value="content">Content</TabsTrigger>
-            <TabsTrigger value="chat">Chat</TabsTrigger>
-            <TabsTrigger value="info">Info</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="content" className="mt-6">
-            <div className="grid md:grid-cols-3 gap-8">
-              <div className="md:col-span-2">
-                <div className="aspect-video bg-black rounded-lg overflow-hidden mb-4">
-                  {videos.length > 0 ? (
-                    <div className="w-full h-full flex items-center justify-center text-white">
-                      Video player would be here
-                    </div>
+        <div className="lg:col-span-1">
+          {showCheckout ? (
+            <Checkout
+              courseId={params.id}
+              courseTitle={course.title}
+              price={Number.parseFloat(course.price.toString())}
+            />
+          ) : (
+            <Card className="sticky top-24">
+              <CardContent className="p-6 space-y-6">
+                <div className="text-center">
+                  <p className="text-3xl font-bold mb-2">${Number.parseFloat(course.price.toString()).toFixed(2)}</p>
+                  {isEnrolled ? (
+                    <Button
+                      className="w-full bg-emerald-600 hover:bg-emerald-700 mb-4"
+                      size="lg"
+                      onClick={() => router.push(`/dashboard/courses/${params.id}`)}
+                    >
+                      Continue Learning
+                    </Button>
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center text-white">No videos available</div>
+                    <Button
+                      className="w-full bg-emerald-600 hover:bg-emerald-700 mb-4"
+                      size="lg"
+                      onClick={handleEnroll}
+                    >
+                      Enroll Now
+                    </Button>
                   )}
+                  <p className="text-sm text-muted-foreground">30-day money-back guarantee</p>
                 </div>
 
                 <div className="space-y-4">
-                  <h2 className="text-xl font-bold">{videos.length > 0 ? videos[0].title : "No video selected"}</h2>
-
-                  {videos.length > 0 && (
-                    <div className="space-y-4">
-                      <p>{videos[0].description}</p>
-
-                      <div className="border rounded-lg p-4 bg-muted/50">
-                        <h3 className="font-medium mb-2">AI-Generated Transcript</h3>
-                        <p className="text-sm text-muted-foreground">
-                          {videos[0].transcription || "No transcription available"}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <div className="border rounded-lg overflow-hidden sticky top-20">
-                  <div className="p-4 border-b bg-muted/50">
-                    <h3 className="font-medium">Course Content</h3>
-                    <p className="text-sm text-muted-foreground">
-                      {videos.length} {videos.length === 1 ? "video" : "videos"}
-                    </p>
-                  </div>
-
-                  <div className="divide-y max-h-[500px] overflow-y-auto">
-                    {videos.length > 0 ? (
-                      videos.map((video, index) => (
-                        <div
-                          key={video._id.toString()}
-                          className="p-4 flex justify-between items-center hover:bg-muted/50 cursor-pointer"
-                        >
-                          <div className="flex items-center gap-2">
-                            <Video className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-sm font-medium">
-                              {index + 1}. {video.title}
-                            </span>
-                          </div>
-                          <span className="text-sm text-muted-foreground">10:30</span>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="p-8 text-center text-muted-foreground">No videos available</div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="chat" className="mt-6">
-            <ChatRoom courseId={params.id} userId={user._id.toString()} />
-          </TabsContent>
-
-          <TabsContent value="info" className="mt-6">
-            <div className="grid md:grid-cols-3 gap-8">
-              <div className="md:col-span-2 space-y-6">
-                <div>
-                  <h2 className="text-xl font-bold mb-2">About this course</h2>
-                  <p>{course.description}</p>
+                  <h3 className="font-semibold">This course includes:</h3>
+                  <ul className="space-y-2">
+                    <li className="flex items-center">
+                      <FileText className="h-5 w-5 mr-2 text-emerald-600" />
+                      <span>18 on-demand videos</span>
+                    </li>
+                    <li className="flex items-center">
+                      <Clock className="h-5 w-5 mr-2 text-emerald-600" />
+                      <span>12 hours of content</span>
+                    </li>
+                    <li className="flex items-center">
+                      <MessageSquare className="h-5 w-5 mr-2 text-emerald-600" />
+                      <span>Real-time chat support</span>
+                    </li>
+                    <li className="flex items-center">
+                      <Award className="h-5 w-5 mr-2 text-emerald-600" />
+                      <span>Certificate of completion</span>
+                    </li>
+                  </ul>
                 </div>
 
-                <div>
-                  <h2 className="text-xl font-bold mb-2">Instructor</h2>
-                  <div className="flex items-start gap-4">
-                    <Avatar className="h-12 w-12">
-                      <AvatarImage src="/placeholder.svg?height=48&width=48" alt={course.instructorName} />
-                      <AvatarFallback>{course.instructorName.substring(0, 2).toUpperCase()}</AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <h3 className="font-medium">{course.instructorName}</h3>
-                      <p className="text-sm text-muted-foreground">Course Instructor</p>
-                    </div>
-                  </div>
+                <div className="pt-4 border-t">
+                  <h3 className="font-semibold mb-2">Course details:</h3>
+                  <ul className="space-y-2 text-sm">
+                    <li className="flex justify-between">
+                      <span className="text-muted-foreground">Level:</span>
+                      <span>{course.level || "Intermediate"}</span>
+                    </li>
+                    <li className="flex justify-between">
+                      <span className="text-muted-foreground">Last updated:</span>
+                      <span>{new Date(course.updated_at).toLocaleDateString()}</span>
+                    </li>
+                    <li className="flex justify-between">
+                      <span className="text-muted-foreground">Students:</span>
+                      <span>42</span>
+                    </li>
+                  </ul>
                 </div>
-              </div>
-
-              <div>
-                <div className="border rounded-lg p-6 space-y-4 sticky top-20">
-                  <div className="flex items-center gap-2">
-                    <Users className="h-4 w-4 text-muted-foreground" />
-                    <span>{course.students?.length || 0} students enrolled</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Video className="h-4 w-4 text-muted-foreground" />
-                    <span>
-                      {videos.length} {videos.length === 1 ? "video" : "videos"}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Clock className="h-4 w-4 text-muted-foreground" />
-                    <span>Last updated: {new Date(course.updatedAt).toLocaleDateString()}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </TabsContent>
-        </Tabs>
+              </CardContent>
+            </Card>
+          )}
+        </div>
       </div>
     </div>
   )

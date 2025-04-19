@@ -122,6 +122,9 @@ export function VideoPlayer({
       if (segment) {
         setCurrentTranscriptSegment(segment.text);
       }
+    } else {
+      // Clear the transcript segment if no transcript is available
+      setCurrentTranscriptSegment("");
     }
   }, [currentTime, transcriptSegments]);
 
@@ -202,6 +205,9 @@ export function VideoPlayer({
     const seconds = Math.floor(time % 60);
     return `${minutes}:${seconds < 10 ? "0" : ""}${seconds}`;
   };
+
+  // Only show transcript toggle button if transcript is available
+  const hasTranscript = transcript && transcript.trim().length > 0;
 
   // Create the video element regardless of isPlaying state
   return (
@@ -300,7 +306,7 @@ export function VideoPlayer({
             </div>
 
             <div className="flex items-center gap-2">
-              {transcript && (
+              {hasTranscript && (
                 <Button
                   onClick={toggleTranscript}
                   variant="ghost"

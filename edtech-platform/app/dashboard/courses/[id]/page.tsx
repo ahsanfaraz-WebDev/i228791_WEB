@@ -32,6 +32,7 @@ import {
 } from "@/lib/services/course-service";
 import { toast } from "@/components/ui/use-toast";
 import { createClient } from "@/lib/supabase/client";
+import { TranscriptService } from "@/lib/services/transcript-service";
 
 export default function CourseDashboardPage({
   params,
@@ -53,6 +54,7 @@ export default function CourseDashboardPage({
   const [videoWatchTimes, setVideoWatchTimes] = useState<
     Record<string, number>
   >({});
+  const [isGeneratingTranscript, setIsGeneratingTranscript] = useState(false);
 
   // Unwrap params using React.use()
   const courseId = React.use(params).id;
@@ -229,6 +231,41 @@ export default function CourseDashboardPage({
     }
   };
 
+  const generateTranscript = async () => {
+    if (!activeVideo || !activeVideo.id) return;
+
+    setIsGeneratingTranscript(true);
+    toast({
+      title: "Generating transcript...",
+      description: "This might take a moment.",
+    });
+
+    try {
+      await TranscriptService.generateTranscript(
+        activeVideo.video_url,
+        activeVideo.id
+      );
+
+      // Refresh the video data to get the new transcript
+      const updatedVideos = await CourseService.getCourseVideos(courseId);
+      setVideos(updatedVideos);
+
+      toast({
+        title: "Transcript generated!",
+        description: "The transcript has been generated successfully.",
+      });
+    } catch (error) {
+      console.error("Error generating transcript:", error);
+      toast({
+        title: "Error",
+        description: "Failed to generate transcript. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsGeneratingTranscript(false);
+    }
+  };
+
   if (!user) {
     return (
       <div className="container py-10">
@@ -324,7 +361,14 @@ export default function CourseDashboardPage({
                   <CardDescription>AI-generated transcript</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {activeVideo?.transcript ? (
+                  {isGeneratingTranscript ? (
+                    <div className="flex flex-col items-center justify-center py-8">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600 mb-4"></div>
+                      <p className="text-muted-foreground">
+                        Generating transcript...
+                      </p>
+                    </div>
+                  ) : activeVideo?.transcript ? (
                     <div className="whitespace-pre-line prose prose-slate dark:prose-invert max-w-none">
                       {activeVideo.transcript.content}
                     </div>
@@ -334,11 +378,16 @@ export default function CourseDashboardPage({
                       {userRole === "tutor" && (
                         <div className="mt-4 p-4 border rounded-md bg-muted/50">
                           <h4 className="font-medium mb-2">Tutor Note</h4>
-                          <p className="text-sm">
-                            To add a transcript for this video, you can update
-                            the video in the course editor. Transcripts help
-                            students follow along and improve accessibility.
+                          <p className="text-sm mb-4">
+                            Transcripts help students follow along and improve
+                            accessibility.
                           </p>
+                          <Button
+                            onClick={generateTranscript}
+                            className="bg-emerald-600 hover:bg-emerald-700 w-full"
+                          >
+                            Generate Transcript
+                          </Button>
                         </div>
                       )}
                     </div>

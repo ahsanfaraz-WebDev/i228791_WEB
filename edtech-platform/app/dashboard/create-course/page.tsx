@@ -29,6 +29,7 @@ import { Upload, Plus, X } from "lucide-react";
 import { useAuth } from "@/components/auth/auth-provider";
 import { CourseService } from "@/lib/services/course-service";
 import { CloudinaryService } from "@/lib/services/cloudinary-service";
+import { TranscriptService } from "@/lib/services/transcript-service";
 import { formatStorageUrl } from "@/lib/utils";
 
 export default function CreateCoursePage() {
@@ -247,7 +248,7 @@ export default function CreateCoursePage() {
               CloudinaryService.getVideoThumbnail(videoUrl);
 
             // Create a video record in the database
-            await CourseService.createVideo({
+            const videoRecord = await CourseService.createVideo({
               course_id: newCourse.id,
               title: video.title,
               description: video.description || "",
@@ -258,6 +259,28 @@ export default function CreateCoursePage() {
             });
 
             console.log(`Video ${i + 1} uploaded and added to course`);
+
+            // Generate transcript for the video
+            if (videoRecord && videoRecord.id) {
+              toast({
+                title: `Generating transcript for video ${i + 1}...`,
+                description: "This might take a moment.",
+              });
+
+              try {
+                await TranscriptService.generateTranscript(
+                  videoUrl,
+                  videoRecord.id
+                );
+                console.log(`Transcript generated for video ${i + 1}`);
+              } catch (transcriptError) {
+                console.error(
+                  `Error generating transcript for video ${i + 1}:`,
+                  transcriptError
+                );
+                // Continue even if transcript generation fails
+              }
+            }
           } catch (videoError: any) {
             console.error(`Error uploading video ${i + 1}:`, videoError);
             toast({

@@ -1,108 +1,107 @@
-"use client"
+"use client";
 
-import type React from "react"
+import type React from "react";
 
-import { useState } from "react"
-import Link from "next/link"
-import Image from "next/image"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Slider } from "@/components/ui/slider"
-import { Search, Filter, Star } from "lucide-react"
+import { useState, useEffect } from "react";
+import Link from "next/link";
+import Image from "next/image";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Slider } from "@/components/ui/slider";
+import { Search, Filter, Star } from "lucide-react";
+import { CourseService, type Course } from "@/lib/services/course-service";
+import { toast } from "@/components/ui/use-toast";
+import { useDebounce } from "@/lib/hooks/useDebounce";
 
 export default function CoursesPage() {
-  const [priceRange, setPriceRange] = useState([0, 200])
-  const [searchQuery, setSearchQuery] = useState("")
-  const [categoryFilter, setCategoryFilter] = useState("all")
+  const [priceRange, setPriceRange] = useState([0, 200]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [sortOption, setSortOption] = useState("newest");
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Mock data - in a real app, this would come from an API
-  const courses = [
-    {
-      id: 1,
-      title: "Introduction to Web Development",
-      description: "Learn the basics of HTML, CSS, and JavaScript",
-      thumbnail: "/placeholder.svg?height=200&width=350",
-      tutor: "Sarah Johnson",
-      tutorAvatar: "/placeholder.svg?height=40&width=40",
-      price: 49.99,
-      rating: 4.8,
-      reviews: 128,
-      category: "web",
-    },
-    {
-      id: 2,
-      title: "Advanced React Patterns",
-      description: "Master advanced React concepts and patterns",
-      thumbnail: "/placeholder.svg?height=200&width=350",
-      tutor: "Michael Chen",
-      tutorAvatar: "/placeholder.svg?height=40&width=40",
-      price: 79.99,
-      rating: 4.9,
-      reviews: 86,
-      category: "web",
-    },
-    {
-      id: 3,
-      title: "Data Structures & Algorithms",
-      description: "Essential computer science concepts for interviews",
-      thumbnail: "/placeholder.svg?height=200&width=350",
-      tutor: "Emily Rodriguez",
-      tutorAvatar: "/placeholder.svg?height=40&width=40",
-      price: 89.99,
-      rating: 4.7,
-      reviews: 215,
-      category: "cs",
-    },
-    {
-      id: 4,
-      title: "Machine Learning Fundamentals",
-      description: "Introduction to machine learning concepts and applications",
-      thumbnail: "/placeholder.svg?height=200&width=350",
-      tutor: "David Kim",
-      tutorAvatar: "/placeholder.svg?height=40&width=40",
-      price: 99.99,
-      rating: 4.6,
-      reviews: 172,
-      category: "ai",
-    },
-    {
-      id: 5,
-      title: "UX/UI Design Principles",
-      description: "Learn to create beautiful and functional user interfaces",
-      thumbnail: "/placeholder.svg?height=200&width=350",
-      tutor: "Jessica Patel",
-      tutorAvatar: "/placeholder.svg?height=40&width=40",
-      price: 69.99,
-      rating: 4.8,
-      reviews: 94,
-      category: "design",
-    },
-    {
-      id: 6,
-      title: "Python for Data Science",
-      description: "Master Python for data analysis and visualization",
-      thumbnail: "/placeholder.svg?height=200&width=350",
-      tutor: "Robert Wilson",
-      tutorAvatar: "/placeholder.svg?height=40&width=40",
-      price: 59.99,
-      rating: 4.7,
-      reviews: 183,
-      category: "data",
-    },
-  ]
+  // Debounce price range to avoid too many requests
+  const debouncedPriceRange = useDebounce(priceRange, 500);
 
-  // Filter courses based on search, category, and price
-  const filteredCourses = courses.filter((course) => {
-    const matchesSearch =
-      course.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      course.description.toLowerCase().includes(searchQuery.toLowerCase())
-    const matchesCategory = categoryFilter === "all" || course.category === categoryFilter
-    const matchesPrice = course.price >= priceRange[0] && course.price <= priceRange[1]
+  useEffect(() => {
+    const fetchCourses = async () => {
+      setIsLoading(true);
+      try {
+        // Map the sorting option to the API parameters
+        let sort = "created_at";
+        let order: "asc" | "desc" = "desc";
 
-    return matchesSearch && matchesCategory && matchesPrice
-  })
+        switch (sortOption) {
+          case "newest":
+            sort = "created_at";
+            order = "desc";
+            break;
+          case "popular":
+            sort = "popular";
+            break;
+          case "price-low":
+            sort = "price-low";
+            break;
+          case "price-high":
+            sort = "price-high";
+            break;
+          case "rating":
+            sort = "rating";
+            break;
+        }
+
+        const coursesData = await CourseService.getFilteredCourses({
+          category: categoryFilter === "all" ? undefined : categoryFilter,
+          minPrice: debouncedPriceRange[0],
+          maxPrice: debouncedPriceRange[1],
+          sort,
+          order,
+        });
+
+        // Client-side search filtering (since the API doesn't support search yet)
+        const filteredBySearch = searchQuery
+          ? coursesData.filter(
+              (course) =>
+                course.title
+                  .toLowerCase()
+                  .includes(searchQuery.toLowerCase()) ||
+                course.description
+                  .toLowerCase()
+                  .includes(searchQuery.toLowerCase())
+            )
+          : coursesData;
+
+        setCourses(filteredBySearch);
+      } catch (error) {
+        console.error("Error fetching courses:", error);
+        toast({
+          title: "Error",
+          description: "Failed to load courses. Please try again.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchCourses();
+  }, [categoryFilter, debouncedPriceRange, searchQuery, sortOption]);
 
   return (
     <div className="container py-10">
@@ -120,17 +119,18 @@ export default function CoursesPage() {
             <CardContent className="space-y-6">
               <div className="space-y-2">
                 <Label>Category</Label>
-                <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                <Select
+                  value={categoryFilter}
+                  onValueChange={setCategoryFilter}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Select category" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Categories</SelectItem>
-                    <SelectItem value="web">Web Development</SelectItem>
-                    <SelectItem value="cs">Computer Science</SelectItem>
-                    <SelectItem value="ai">Artificial Intelligence</SelectItem>
-                    <SelectItem value="design">Design</SelectItem>
-                    <SelectItem value="data">Data Science</SelectItem>
+                    <SelectItem value="beginner">Beginner</SelectItem>
+                    <SelectItem value="intermediate">Intermediate</SelectItem>
+                    <SelectItem value="advanced">Advanced</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -182,7 +182,7 @@ export default function CoursesPage() {
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
-            <Select defaultValue="newest">
+            <Select value={sortOption} onValueChange={setSortOption}>
               <SelectTrigger className="w-full sm:w-[180px]">
                 <SelectValue placeholder="Sort by" />
               </SelectTrigger>
@@ -196,64 +196,91 @@ export default function CoursesPage() {
             </Select>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-            {filteredCourses.map((course) => (
-              <Card key={course.id} className="overflow-hidden flex flex-col">
-                <div className="relative h-48 w-full">
-                  <Image
-                    src={course.thumbnail || "/placeholder.svg"}
-                    alt={course.title}
-                    fill
-                    className="object-cover"
-                  />
-                </div>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-lg">{course.title}</CardTitle>
-                  <CardDescription>{course.description}</CardDescription>
-                </CardHeader>
-                <CardContent className="pb-2 flex-grow">
-                  <div className="flex items-center mb-2">
-                    <div className="relative h-6 w-6 rounded-full overflow-hidden mr-2">
-                      <Image
-                        src={course.tutorAvatar || "/placeholder.svg"}
-                        alt={course.tutor}
-                        fill
-                        className="object-cover"
-                      />
-                    </div>
-                    <span className="text-sm">{course.tutor}</span>
+          {isLoading ? (
+            <div className="flex justify-center items-center py-20">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600"></div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+              {courses.map((course) => (
+                <Card key={course.id} className="overflow-hidden flex flex-col">
+                  <div className="relative h-48 w-full">
+                    <Image
+                      src={
+                        course.thumbnail_url ||
+                        "/placeholder.svg?height=200&width=350"
+                      }
+                      alt={course.title}
+                      fill
+                      className="object-cover"
+                    />
                   </div>
-                  <div className="flex items-center text-sm">
-                    <div className="flex items-center mr-2">
-                      <Star className="h-4 w-4 fill-current text-yellow-500 mr-1" />
-                      <span>{course.rating}</span>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-lg">{course.title}</CardTitle>
+                    <CardDescription>{course.description}</CardDescription>
+                  </CardHeader>
+                  <CardContent className="pb-2 flex-grow">
+                    <div className="flex items-center mb-2">
+                      <div className="relative h-6 w-6 rounded-full overflow-hidden mr-2">
+                        <Image
+                          src={
+                            course.tutor?.avatar_url ||
+                            "/placeholder.svg?height=40&width=40"
+                          }
+                          alt={course.tutor?.full_name || "Instructor"}
+                          fill
+                          className="object-cover"
+                        />
+                      </div>
+                      <span className="text-sm">
+                        {course.tutor?.full_name || "Instructor"}
+                      </span>
                     </div>
-                    <span className="text-muted-foreground">({course.reviews} reviews)</span>
-                  </div>
-                </CardContent>
-                <CardFooter className="flex justify-between items-center border-t pt-4">
-                  <span className="font-bold">${course.price}</span>
-                  <Button asChild className="bg-emerald-600 hover:bg-emerald-700">
-                    <Link href={`/courses/${course.id}`}>View Course</Link>
-                  </Button>
-                </CardFooter>
-              </Card>
-            ))}
-          </div>
+                    <div className="flex items-center text-sm">
+                      <div className="flex items-center mr-2">
+                        <Star className="h-4 w-4 fill-current text-yellow-500 mr-1" />
+                        <span>4.7</span>
+                      </div>
+                      <span className="text-muted-foreground">
+                        (reviews coming soon)
+                      </span>
+                    </div>
+                  </CardContent>
+                  <CardFooter className="flex justify-between items-center border-t pt-4">
+                    <span className="font-bold">${course.price}</span>
+                    <Button
+                      asChild
+                      className="bg-emerald-600 hover:bg-emerald-700"
+                    >
+                      <Link href={`/courses/${course.id}`}>View Course</Link>
+                    </Button>
+                  </CardFooter>
+                </Card>
+              ))}
+            </div>
+          )}
 
-          {filteredCourses.length === 0 && (
+          {!isLoading && courses.length === 0 && (
             <div className="text-center py-12">
               <h3 className="text-lg font-medium mb-2">No courses found</h3>
-              <p className="text-muted-foreground">Try adjusting your search or filter criteria</p>
+              <p className="text-muted-foreground">
+                Try adjusting your filters or search terms
+              </p>
             </div>
           )}
         </div>
       </div>
     </div>
-  )
+  );
 }
 
-function Label({ children, htmlFor }: { children: React.ReactNode; htmlFor?: string }) {
+function Label({
+  children,
+  htmlFor,
+}: {
+  children: React.ReactNode;
+  htmlFor?: string;
+}) {
   return (
     <label
       htmlFor={htmlFor}
@@ -261,5 +288,5 @@ function Label({ children, htmlFor }: { children: React.ReactNode; htmlFor?: str
     >
       {children}
     </label>
-  )
+  );
 }

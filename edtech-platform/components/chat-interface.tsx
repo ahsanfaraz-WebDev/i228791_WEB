@@ -5,7 +5,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Send } from "lucide-react";
+import { Send, AlertCircle, Wifi, WifiOff } from "lucide-react";
 import { useAuth } from "@/components/auth/auth-provider";
 import { ChatService, type Message } from "@/lib/services/chat-service";
 import useSocket from "@/lib/hooks/useSocket";
@@ -20,16 +20,38 @@ export function ChatInterface({ courseId }: ChatInterfaceProps) {
   const [newMessage, setNewMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
+  const [socketError, setSocketError] = useState<string | null>(null);
+  const [usingFallback, setUsingFallback] = useState(true);
+  const [connectionAttempted, setConnectionAttempted] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const {
     connect,
     joinCourse,
     isConnected,
+    isDisabled,
+    error: socketConnectionError,
     on,
     off,
     sendMessage: socketSendMessage,
     sendTyping,
-  } = useSocket({ autoConnect: true });
+  } = useSocket({ autoConnect: false }); // Manual connection control
+
+  // Track socket connection errors and set fallback mode if needed
+  useEffect(() => {
+    if (isDisabled) {
+      console.log("Socket.IO is disabled by configuration");
+      setSocketError("Socket.IO is disabled");
+      setUsingFallback(true);
+      setConnectionAttempted(true);
+    } else if (socketConnectionError) {
+      console.warn("Socket connection error:", socketConnectionError);
+      setSocketError(socketConnectionError);
+      setUsingFallback(true); // Always use fallback mode on errors
+    } else if (isConnected) {
+      setSocketError(null);
+      setUsingFallback(false); // Only disable fallback when actually connected
+    }
+  }, [socketConnectionError, isConnected, isDisabled]);
 
   // Initialize state with local messages if they exist
   useEffect(() => {
@@ -48,6 +70,7 @@ export function ChatInterface({ courseId }: ChatInterfaceProps) {
   useEffect(() => {
     const fetchMessages = async () => {
       try {
+        setIsLoading(true);
         const courseMessages = await ChatService.getCourseMessages(
           courseId.toString()
         );
@@ -60,29 +83,63 @@ export function ChatInterface({ courseId }: ChatInterfaceProps) {
         );
       } catch (error) {
         console.error("Error fetching messages:", error);
+      } finally {
+        setIsLoading(false);
       }
     };
 
     fetchMessages();
   }, [courseId]);
 
-  // Set up Socket.IO connection
+  // Set up Socket.IO connection with improved error handling
   useEffect(() => {
-    if (!user) return;
+    if (!user || isDisabled) {
+      // Skip Socket.IO setup if it's disabled
+      if (isDisabled) {
+        setConnectionAttempted(true);
+        setUsingFallback(true);
+      }
+      return;
+    }
 
-    // Ensure connection is established
-    connect();
+    const connectToSocket = async () => {
+      try {
+        // Try to connect, but also set a shorter timeout
+        console.log("Attempting to connect to socket");
+        connect();
+        setConnectionAttempted(true);
+
+        // Set a timeout to fall back to REST API if connection takes too long
+        const timeoutId = setTimeout(() => {
+          if (!isConnected) {
+            console.warn("Socket connection timeout, falling back to REST API");
+            setUsingFallback(true);
+            setSocketError("Connection timeout, using API fallback");
+          }
+        }, 3000); // 3 second timeout for initial connection (reduced from 5s)
+
+        return () => clearTimeout(timeoutId);
+      } catch (error) {
+        console.error("Failed to connect to socket:", error);
+        setUsingFallback(true);
+      }
+    };
+
+    connectToSocket();
 
     // Cleanup function
     return () => {
-      // Clean up any subscriptions here if needed
+      // No additional cleanup needed here
     };
-  }, [user, connect]);
+  }, [user, connect, isConnected, isDisabled]);
 
   // Join course room and listen for events when connection is established
   useEffect(() => {
-    if (user && isConnected) {
-      console.log("Joining course room:", courseId.toString());
+    if (!user || !isConnected || isDisabled) return;
+
+    console.log("Joining course room:", courseId.toString());
+
+    try {
       joinCourse(courseId.toString());
 
       // Listen for new messages
@@ -106,23 +163,40 @@ export function ChatInterface({ courseId }: ChatInterfaceProps) {
         });
       });
 
+      // Listen for errors
+      on("error", (errorMessage: string) => {
+        console.error("Socket error event:", errorMessage);
+        setSocketError(errorMessage);
+        if (
+          errorMessage.includes("Authentication") ||
+          errorMessage.includes("not enrolled")
+        ) {
+          setUsingFallback(true);
+        }
+      });
+
       // Listen for typing events
       on("user-typing", (data: { userId: string; isTyping: boolean }) => {
         if (data.userId !== user.id) {
           setIsTyping(data.isTyping);
         }
       });
+    } catch (error) {
+      console.error("Error setting up socket events:", error);
+      setUsingFallback(true);
     }
 
     return () => {
       // Clean up event listeners
       off("new-message");
       off("user-typing");
+      off("error");
     };
-  }, [user, isConnected, courseId, joinCourse, on, off]);
+  }, [user, isConnected, courseId, joinCourse, on, off, isDisabled]);
 
   // Subscribe to new messages with Supabase (backup for Socket.IO)
   useEffect(() => {
+    // Always subscribe to Supabase for reliability
     const unsubscribe = ChatService.subscribeToMessages(
       courseId.toString(),
       (newMessage) => {
@@ -166,11 +240,11 @@ export function ChatInterface({ courseId }: ChatInterfaceProps) {
       setNewMessage(e.target.value);
 
       // Send typing status if connected
-      if (isConnected) {
+      if (isConnected && !isDisabled) {
         sendTyping(courseId.toString(), e.target.value.length > 0);
       }
     },
-    [courseId, isConnected, sendTyping]
+    [courseId, isConnected, sendTyping, isDisabled]
   );
 
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -198,29 +272,31 @@ export function ChatInterface({ courseId }: ChatInterfaceProps) {
 
     // Add optimistic message to UI
     setMessages((prev) => [...prev, optimisticMessage]);
+    const messageContent = newMessage.trim();
     setNewMessage("");
 
     // Stop typing indicator
-    if (isConnected) {
+    if (isConnected && !isDisabled) {
       sendTyping(courseId.toString(), false);
     }
 
     try {
-      // Try to send via Socket.IO first
-      const socketSuccess = socketSendMessage(
-        courseId.toString(),
-        newMessage.trim()
-      );
+      let socketSuccess = false;
 
-      console.log("Socket message sent:", socketSuccess);
+      // Only try Socket.IO if we're not in fallback mode and not disabled
+      if (!usingFallback && isConnected && !isDisabled) {
+        // Try to send via Socket.IO first
+        socketSuccess = socketSendMessage(courseId.toString(), messageContent);
+        console.log("Socket message sent:", socketSuccess);
+      }
 
-      // If Socket.IO fails or isn't connected, use direct API call
+      // If Socket.IO fails, isn't connected, or we're in fallback mode, use direct API call
       if (!socketSuccess) {
-        console.log("Falling back to direct API call");
+        console.log("Using fallback method to send message");
         const sentMessage = await ChatService.sendMessage(
           courseId.toString(),
           user.id,
-          newMessage.trim()
+          messageContent
         );
 
         // Replace optimistic message with real one
@@ -244,6 +320,49 @@ export function ChatInterface({ courseId }: ChatInterfaceProps) {
 
   return (
     <div className="flex flex-col h-[500px]">
+      {/* Connection status indicators */}
+      {(connectionAttempted || isDisabled) && (
+        <div
+          className={`px-3 py-2 text-sm flex items-center gap-2 ${
+            usingFallback || isDisabled
+              ? "bg-amber-50 border-amber-200 border text-amber-800"
+              : isConnected
+              ? "bg-emerald-50 border-emerald-200 border text-emerald-800"
+              : "bg-gray-50 border-gray-200 border text-gray-800"
+          }`}
+        >
+          {isConnected && !usingFallback && !isDisabled ? (
+            <>
+              <Wifi className="h-4 w-4" />
+              <span>Real-time chat connected</span>
+            </>
+          ) : usingFallback || isDisabled ? (
+            <>
+              <WifiOff className="h-4 w-4" />
+              <span>
+                {isDisabled
+                  ? "Real-time chat is disabled. Using standard messaging."
+                  : "Using API fallback for chat. Some real-time features may be limited."}
+              </span>
+            </>
+          ) : (
+            <>
+              <AlertCircle className="h-4 w-4" />
+              <span>Connecting to chat...</span>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Error message if there's a socket error but we're not in fallback mode */}
+      {socketError && !usingFallback && !isDisabled && (
+        <div className="bg-amber-50 border-amber-200 border p-2 text-amber-800 text-sm flex items-center gap-2">
+          <AlertCircle className="h-4 w-4" />
+          <span>Socket connection issue: {socketError}</span>
+        </div>
+      )}
+
+      {/* Chat messages area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 ? (
           <div className="flex items-center justify-center h-full text-muted-foreground">

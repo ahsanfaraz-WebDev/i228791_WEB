@@ -15,9 +15,29 @@ EduSphere is a comprehensive education platform built with Next.js, Supabase, an
 
 1. Clone the repository
 2. Install dependencies: `npm install`
-3. Copy `.env.example` to `.env.local` and fill in your Supabase credentials
-4. Run the development server: `npm run dev`
-5. Open [http://localhost:3000](http://localhost:3000) in your browser
+3. Run the environment setup script: `npm run setup-env`
+4. Edit the `.env.local` file and fill in your API keys (Supabase, Stripe, etc.)
+5. Run the development server: `npm run dev`
+6. Open [http://localhost:3000](http://localhost:3000) in your browser
+
+## Stripe Integration
+
+To enable payments with Stripe, you need to add the following environment variables to your `.env.local` file:
+
+```bash
+# Stripe API keys
+STRIPE_SECRET_KEY=sk_test_your_stripe_secret_key
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_your_stripe_publishable_key
+```
+
+You can obtain these keys from your [Stripe Dashboard](https://dashboard.stripe.com/apikeys):
+
+1. Sign up for a Stripe account if you don't have one
+2. Navigate to Developers > API keys
+3. Copy your Publishable key and Secret key
+4. Add them to your `.env.local` file
+
+For production, make sure to use your live Stripe keys instead of test keys.
 
 ## Image Assets Management
 

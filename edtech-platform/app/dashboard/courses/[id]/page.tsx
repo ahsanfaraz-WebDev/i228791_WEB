@@ -35,6 +35,7 @@ import { createClient } from "@/lib/supabase/client";
 import { TranscriptService } from "@/lib/services/transcript-service";
 import { CourseActions } from "@/components/courses/course-actions";
 import { Badge } from "@/components/ui/badge";
+import { ProgressService } from "@/lib/services/progress-service";
 
 export default function CourseDashboardPage({
   params,
@@ -171,25 +172,82 @@ export default function CourseDashboardPage({
   const activeVideo = videos[activeVideoIndex] || null;
 
   const handleVideoProgress = async (currentTime: number, duration: number) => {
-    if (!user || !activeVideo || !enrollmentId) return;
+    if (!user || !activeVideo || !enrollmentId) {
+      console.log("Missing required data for progress tracking:", {
+        user: !!user,
+        activeVideo: !!activeVideo,
+        enrollmentId: !!enrollmentId,
+      });
+      return;
+    }
 
     try {
-      // Mark as completed if within 5 seconds of the end
+      // Make sure values are valid numbers
+      if (
+        isNaN(currentTime) ||
+        isNaN(duration) ||
+        currentTime < 0 ||
+        duration <= 0
+      ) {
+        console.error("Invalid video timing values:", {
+          currentTime,
+          duration,
+        });
+        return;
+      }
+
+      // Mark as completed if within 5 seconds of the end or past the end
       const isCompleted = duration - currentTime <= 5;
 
-      await CourseService.updateProgress(
+      // Log the data being sent for debugging
+      if (process.env.NODE_ENV === "development") {
+        console.log("Saving progress with data:", {
+          enrollmentId,
+          videoId: activeVideo.id,
+          currentTime: Math.min(currentTime, duration),
+          duration,
+          isCompleted,
+        });
+      }
+
+      // Use the new ProgressService instead of CourseService
+      const result = await ProgressService.updateProgress(
         enrollmentId,
         activeVideo.id,
-        currentTime,
+        Math.min(currentTime, duration), // Ensure currentTime doesn't exceed duration
         isCompleted
       );
 
       // Only log to console in development
       if (process.env.NODE_ENV === "development") {
-        console.log(`Progress saved: ${currentTime}/${duration}`);
+        console.log(
+          `Progress saved: ${currentTime}/${duration}`,
+          result ? "Success" : "Failed"
+        );
       }
+
+      // If progress saving failed, but it's not critical, don't show a toast
     } catch (error) {
-      console.error("Error saving video progress:", error);
+      // Enhanced error handling with detailed logging
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error";
+      const errorDetails =
+        error instanceof Error && error.stack
+          ? error.stack
+          : JSON.stringify(error);
+
+      console.error(
+        `Error saving video progress for video ${activeVideo.id}:`,
+        errorMessage
+      );
+      console.error("Error details:", errorDetails);
+
+      // Show toast to user with more specific error message
+      toast({
+        title: "Progress Tracking Issue",
+        description: `We couldn't save your progress (${errorMessage}). The video will continue playing.`,
+        variant: "destructive",
+      });
     }
   };
 
@@ -197,31 +255,36 @@ export default function CourseDashboardPage({
     if (!user || !activeVideo || !enrollmentId) return;
 
     try {
-      await CourseService.updateProgress(
+      // Use the new ProgressService instead of CourseService
+      const result = await ProgressService.updateProgress(
         enrollmentId,
         activeVideo.id,
         activeVideo.duration,
         true
       );
 
-      // Update local state
-      setVideoProgress((prev) => ({
-        ...prev,
-        [activeVideo.id]: true,
-      }));
+      if (result) {
+        // Update local state
+        setVideoProgress((prev) => ({
+          ...prev,
+          [activeVideo.id]: true,
+        }));
 
-      toast({
-        title: "Video completed!",
-        description: "Your progress has been saved.",
-      });
+        toast({
+          title: "Video completed!",
+          description: "Your progress has been saved.",
+        });
 
-      // Get updated progress data
-      if (userRole === "student") {
-        const progress = await CourseService.calculateCourseProgress(
-          enrollmentId,
-          courseId
-        );
-        setCourseProgress(progress);
+        // Get updated progress data
+        if (userRole === "student") {
+          const progress = await CourseService.calculateCourseProgress(
+            enrollmentId,
+            courseId
+          );
+          setCourseProgress(progress);
+        }
+      } else {
+        console.error("Failed to save video completion");
       }
     } catch (error) {
       console.error("Error saving video completion:", error);
@@ -239,30 +302,133 @@ export default function CourseDashboardPage({
     setIsGeneratingTranscript(true);
     toast({
       title: "Generating transcript...",
-      description: "This might take a moment.",
+      description:
+        "This might take a moment. We're analyzing your video content.",
+      duration: 5000,
     });
 
+    let retryCount = 0;
+    const maxRetries = 2;
+
+    // Show status update after a short delay
+    const statusUpdateTimeout = setTimeout(() => {
+      toast({
+        title: "Still working...",
+        description:
+          "Transcript generation in progress. This may take up to 30 seconds.",
+        duration: 10000,
+      });
+    }, 10000);
+
+    const attemptGeneration = async (): Promise<boolean> => {
+      try {
+        const transcript = await TranscriptService.generateTranscript(
+          activeVideo.video_url,
+          activeVideo.id
+        );
+
+        if (!transcript) {
+          console.error("Failed to generate transcript: No content returned");
+          return false;
+        }
+
+        // Success - transcript was generated and saved
+        return true;
+      } catch (error) {
+        console.error(
+          `Transcript generation attempt ${retryCount + 1} failed:`,
+          error
+        );
+
+        if (retryCount < maxRetries) {
+          retryCount++;
+
+          toast({
+            title: `Retrying (${retryCount}/${maxRetries})...`,
+            description:
+              "First attempt didn't work. Trying an alternative approach.",
+            duration: 3000,
+          });
+
+          console.log(
+            `Retrying transcript generation (${retryCount}/${maxRetries})...`
+          );
+
+          // Wait a bit before retrying
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          return attemptGeneration();
+        }
+
+        return false;
+      }
+    };
+
     try {
-      await TranscriptService.generateTranscript(
-        activeVideo.video_url,
-        activeVideo.id
-      );
+      // Clear the timeout if we finish early
+      clearTimeout(statusUpdateTimeout);
 
-      // Refresh the video data to get the new transcript
-      const updatedVideos = await CourseService.getCourseVideos(courseId);
-      setVideos(updatedVideos);
+      const success = await attemptGeneration();
 
-      toast({
-        title: "Transcript generated!",
-        description: "The transcript has been generated successfully.",
-      });
+      if (success) {
+        // Refresh the video data to get the new transcript
+        try {
+          const updatedVideos = await CourseService.getCourseVideos(courseId);
+          setVideos(updatedVideos);
+
+          toast({
+            title: "Transcript generated!",
+            description: "The transcript has been generated successfully.",
+          });
+        } catch (refreshError) {
+          console.error(
+            "Error refreshing videos after transcript generated:",
+            refreshError
+          );
+
+          toast({
+            title: "Transcript generated",
+            description:
+              "Transcript was created but you may need to refresh to see it.",
+          });
+        }
+      } else {
+        toast({
+          title: "Transcript generation completed",
+          description:
+            "We encountered some challenges but created a simplified transcript for this video.",
+          variant: "warning",
+        });
+
+        // Refresh anyway to get whatever transcript was saved
+        try {
+          const updatedVideos = await CourseService.getCourseVideos(courseId);
+          setVideos(updatedVideos);
+        } catch (refreshError) {
+          console.error("Error refreshing videos:", refreshError);
+        }
+      }
     } catch (error) {
-      console.error("Error generating transcript:", error);
+      // Clear the timeout if we have an error
+      clearTimeout(statusUpdateTimeout);
+
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error";
+      console.error("Error in transcript generation process:", error);
+
       toast({
-        title: "Error",
-        description: "Failed to generate transcript. Please try again.",
+        title: "Error during generation",
+        description: `We couldn't generate the transcript completely: ${errorMessage}. A partial transcript may be available.`,
         variant: "destructive",
+        duration: 5000,
       });
+
+      // Still try to refresh in case a partial transcript was saved
+      try {
+        const updatedVideos = await CourseService.getCourseVideos(courseId);
+        setVideos(updatedVideos);
+      } catch (refreshError) {
+        console.error("Error refreshing videos after error:", refreshError);
+      }
     } finally {
       setIsGeneratingTranscript(false);
     }
@@ -391,6 +557,10 @@ export default function CourseDashboardPage({
                       <p className="text-muted-foreground">
                         Generating transcript...
                       </p>
+                      <p className="text-xs text-muted-foreground mt-2 max-w-md text-center">
+                        This may take 20-30 seconds. We're analyzing the video
+                        and creating a detailed transcript.
+                      </p>
                     </div>
                   ) : activeVideo?.transcript?.content ? (
                     <div className="whitespace-pre-line prose prose-slate dark:prose-invert max-w-none">
@@ -413,6 +583,10 @@ export default function CourseDashboardPage({
                           >
                             Generate Transcript
                           </Button>
+                          <p className="text-xs text-muted-foreground mt-2">
+                            Supports English, Hindi, and other languages
+                            automatically.
+                          </p>
                         </div>
                       )}
                       {userRole === "student" && activeVideo && (

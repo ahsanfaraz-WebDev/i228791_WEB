@@ -330,69 +330,104 @@ export const CourseService = {
     watchedSeconds: number,
     completed: boolean
   ) {
-    const supabase = createClient();
+    try {
+      if (!enrollmentId || !videoId) {
+        console.error("Invalid enrollment or video ID provided");
+        throw new Error("Invalid enrollment or video ID provided");
+      }
 
-    // Check if progress record exists
-    const { data: existingProgress, error: checkError } = await supabase
-      .from("progress")
-      .select()
-      .eq("enrollment_id", enrollmentId)
-      .eq("video_id", videoId)
-      .maybeSingle();
+      const supabase = createClient();
 
-    if (checkError) {
+      // Check if progress record exists
+      const { data: existingProgress, error: checkError } = await supabase
+        .from("progress")
+        .select()
+        .eq("enrollment_id", enrollmentId)
+        .eq("video_id", videoId)
+        .maybeSingle();
+
+      if (checkError) {
+        // Log the full error details for debugging
+        console.error(
+          `Error checking progress for enrollment ${enrollmentId} and video ${videoId}:`,
+          JSON.stringify(checkError)
+        );
+        throw new Error(
+          `Error checking progress: ${
+            checkError.message || checkError.code || "Unknown error"
+          }`
+        );
+      }
+
+      // Format data for insert/update
+      const progressData = {
+        watched_seconds: watchedSeconds,
+        completed,
+        last_watched_at: new Date().toISOString(),
+      };
+
+      let result;
+
+      if (existingProgress) {
+        // Update existing progress
+        const { data, error } = await supabase
+          .from("progress")
+          .update(progressData)
+          .eq("id", existingProgress.id)
+          .select()
+          .single();
+
+        if (error) {
+          // Log the full error details for debugging
+          console.error(
+            `Error updating progress for enrollment ${enrollmentId} and video ${videoId}:`,
+            JSON.stringify(error)
+          );
+          throw new Error(
+            `Error updating progress: ${
+              error.message || error.code || "Unknown error"
+            }`
+          );
+        }
+
+        result = data;
+      } else {
+        // Create new progress record
+        const { data, error } = await supabase
+          .from("progress")
+          .insert({
+            enrollment_id: enrollmentId,
+            video_id: videoId,
+            ...progressData,
+          })
+          .select()
+          .single();
+
+        if (error) {
+          // Log the full error details for debugging
+          console.error(
+            `Error creating progress for enrollment ${enrollmentId} and video ${videoId}:`,
+            JSON.stringify(error)
+          );
+          throw new Error(
+            `Error creating progress: ${
+              error.message || error.code || "Unknown error"
+            }`
+          );
+        }
+
+        result = data;
+      }
+
+      return result as Progress;
+    } catch (err) {
+      // Make sure to stringify the error object for better visibility in logs
+      const errorMessage =
+        err instanceof Error ? err.message : JSON.stringify(err);
       console.error(
-        `Error checking progress for enrollment ${enrollmentId} and video ${videoId}:`,
-        checkError
+        `Progress update error for enrollment ${enrollmentId} and video ${videoId}: ${errorMessage}`
       );
-      throw checkError;
-    }
-
-    if (existingProgress) {
-      // Update existing progress
-      const { data, error } = await supabase
-        .from("progress")
-        .update({
-          watched_seconds: watchedSeconds,
-          completed,
-          last_watched_at: new Date().toISOString(),
-        })
-        .eq("id", existingProgress.id)
-        .select()
-        .single();
-
-      if (error) {
-        console.error(
-          `Error updating progress for enrollment ${enrollmentId} and video ${videoId}:`,
-          error
-        );
-        throw error;
-      }
-
-      return data as Progress;
-    } else {
-      // Create new progress record
-      const { data, error } = await supabase
-        .from("progress")
-        .insert({
-          enrollment_id: enrollmentId,
-          video_id: videoId,
-          watched_seconds: watchedSeconds,
-          completed,
-          last_watched_at: new Date().toISOString(),
-        })
-        .select()
-        .single();
-
-      if (error) {
-        console.error(
-          `Error creating progress for enrollment ${enrollmentId} and video ${videoId}:`,
-          error
-        );
-        throw error;
-      }
-
-      return data as Progress;
+      throw err;
     }
   },
 
@@ -653,7 +688,9 @@ export const CourseService = {
       // Check if student is already enrolled
       const isAlreadyEnrolled = await this.isEnrolled(courseId, studentId);
       if (isAlreadyEnrolled) {
-        console.log(`Student ${studentId} is already enrolled in course ${courseId}`);
+        console.log(
+          `Student ${studentId} is already enrolled in course ${courseId}`
+        );
         return true;
       }
 
@@ -669,7 +706,10 @@ export const CourseService = {
         .single();
 
       if (error) {
-        console.error(`Error enrolling student ${studentId} in course ${courseId}:`, error);
+        console.error(
+          `Error enrolling student ${studentId} in course ${courseId}:`,
+          error
+        );
         throw new Error(`Enrollment failed: ${error.message}`);
       }
 
@@ -688,7 +728,11 @@ export const CourseService = {
       return true;
     } catch (err) {
       console.error("Error in enrollStudent:", err);
-      throw new Error(`Failed to enroll in course: ${err instanceof Error ? err.message : String(err)}`);
+      throw new Error(
+        `Failed to enroll in course: ${
+          err instanceof Error ? err.message : String(err)
+        }`
+      );
     }
   },
 };

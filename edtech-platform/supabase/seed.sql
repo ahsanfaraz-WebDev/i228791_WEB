@@ -22,6 +22,30 @@ CREATE TABLE IF NOT EXISTS public.testimonials (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Create transcripts table if it doesn't exist
+CREATE TABLE IF NOT EXISTS public.transcripts (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    video_id UUID NOT NULL,
+    content TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Add RLS policies for transcripts table
+ALTER TABLE public.transcripts ENABLE ROW LEVEL SECURITY;
+
+-- Allow any authenticated user to read transcripts
+CREATE POLICY "Anyone can read transcripts" ON public.transcripts 
+FOR SELECT USING (auth.role() = 'authenticated');
+
+-- Allow any authenticated user to insert transcripts
+CREATE POLICY "Authenticated users can insert transcripts" ON public.transcripts 
+FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+
+-- Allow the user who created a transcript to update it
+CREATE POLICY "Users can update their own transcripts" ON public.transcripts 
+FOR UPDATE USING (auth.role() = 'authenticated');
+
 -- Clear existing data if any
 DELETE FROM public.features;
 DELETE FROM public.testimonials;

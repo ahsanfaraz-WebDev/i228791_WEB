@@ -9,6 +9,8 @@ import { Checkout } from "@/components/payment/checkout-form";
 import { CourseService, type Course } from "@/lib/services/course-service";
 import { useAuth } from "@/components/auth/auth-provider";
 import { ArrowLeft } from "lucide-react";
+import { toast } from "@/components/ui/use-toast";
+import { useRouter } from "next/navigation";
 
 export default function CheckoutPage() {
   const searchParams = useSearchParams();
@@ -17,6 +19,26 @@ export default function CheckoutPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { user } = useAuth();
+  const router = useRouter();
+  const [userRole, setUserRole] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Determine user role
+    if (user) {
+      const role = user.user_metadata?.role || null;
+      setUserRole(role);
+
+      // Redirect tutors away from checkout
+      if (role === "tutor" && courseId) {
+        toast({
+          title: "Access Denied",
+          description: "Tutors cannot purchase courses.",
+          variant: "destructive",
+        });
+        router.push(`/courses/${courseId}`);
+      }
+    }
+  }, [user, courseId, router]);
 
   useEffect(() => {
     async function fetchCourseData() {
@@ -60,6 +82,23 @@ export default function CheckoutPage() {
             <Link href={`/login?returnTo=/checkout?courseId=${courseId}`}>
               Sign In
             </Link>
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // Block tutors from checkout page
+  if (userRole === "tutor") {
+    return (
+      <div className="container max-w-6xl py-12">
+        <div className="max-w-md mx-auto text-center py-12">
+          <h1 className="text-2xl font-bold mb-4">Access Denied</h1>
+          <p className="text-muted-foreground mb-6">
+            As a tutor, you cannot purchase courses on the platform.
+          </p>
+          <Button asChild>
+            <Link href="/courses">Browse Courses</Link>
           </Button>
         </div>
       </div>

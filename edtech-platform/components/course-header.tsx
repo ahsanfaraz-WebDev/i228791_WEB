@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -28,8 +28,20 @@ interface CourseHeaderProps {
 export function CourseHeader({ course }: CourseHeaderProps) {
   const { user } = useAuth();
   const router = useRouter();
-  const [isEnrolling, setIsEnrolling] = useState(false);
   const [isEnrolled, setIsEnrolled] = useState(false);
+  const [isEnrolling, setIsEnrolling] = useState(false);
+  const [userRole, setUserRole] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (user) {
+      // Determine user role
+      const role = user.user_metadata?.role || null;
+      setUserRole(role);
+
+      // Check enrollment status
+      checkEnrollmentStatus();
+    }
+  }, [user]);
 
   // Check if user is enrolled
   const checkEnrollmentStatus = async () => {
@@ -184,31 +196,47 @@ export function CourseHeader({ course }: CourseHeaderProps) {
                     )}
                 </div>
 
-                <Button
-                  onClick={handleEnroll}
-                  disabled={isEnrolling}
-                  className="w-full py-6 text-lg bg-blue-600 hover:bg-blue-700"
-                >
-                  {isEnrolling ? (
-                    "Processing..."
-                  ) : isEnrolled ? (
-                    <>
-                      Continue Learning <ArrowRight className="ml-2 h-4 w-4" />
-                    </>
-                  ) : Number(course.price) > 0 ? (
-                    <>
-                      Purchase Course <ShoppingCart className="ml-2 h-4 w-4" />
-                    </>
-                  ) : (
-                    <>
-                      Enroll for Free <ArrowRight className="ml-2 h-4 w-4" />
-                    </>
-                  )}
-                </Button>
+                {userRole !== "tutor" ? (
+                  <>
+                    <Button
+                      onClick={handleEnroll}
+                      disabled={isEnrolling}
+                      className="w-full py-6 text-lg bg-blue-600 hover:bg-blue-700"
+                    >
+                      {isEnrolling ? (
+                        "Processing..."
+                      ) : isEnrolled ? (
+                        <>
+                          Continue Learning{" "}
+                          <ArrowRight className="ml-2 h-4 w-4" />
+                        </>
+                      ) : Number(course.price) > 0 ? (
+                        <>
+                          Purchase Course{" "}
+                          <ShoppingCart className="ml-2 h-4 w-4" />
+                        </>
+                      ) : (
+                        <>
+                          Enroll for Free{" "}
+                          <ArrowRight className="ml-2 h-4 w-4" />
+                        </>
+                      )}
+                    </Button>
 
-                <p className="text-sm text-center text-muted-foreground">
-                  30-day money-back guarantee
-                </p>
+                    <p className="text-sm text-center text-muted-foreground">
+                      30-day money-back guarantee
+                    </p>
+                  </>
+                ) : (
+                  <div className="w-full bg-muted p-4 rounded-md text-center">
+                    <p className="text-muted-foreground mb-2">
+                      As a tutor, you cannot enroll in courses
+                    </p>
+                    <Button asChild variant="outline" className="w-full">
+                      <Link href="/dashboard">Go to Dashboard</Link>
+                    </Button>
+                  </div>
+                )}
 
                 <div className="space-y-2 mt-4">
                   <h3 className="font-semibold">This course includes:</h3>

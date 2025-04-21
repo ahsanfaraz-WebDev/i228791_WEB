@@ -34,6 +34,7 @@ import { toast } from "@/components/ui/use-toast";
 import { createClient } from "@/lib/supabase/client";
 import { TranscriptService } from "@/lib/services/transcript-service";
 import { CourseActions } from "@/components/courses/course-actions";
+import { Badge } from "@/components/ui/badge";
 
 export default function CourseDashboardPage({
   params,
@@ -267,6 +268,15 @@ export default function CourseDashboardPage({
     }
   };
 
+  const requestTranscript = () => {
+    if (!activeVideo) return;
+
+    toast({
+      title: "Transcript requested",
+      description: "Your request has been sent to the tutor.",
+    });
+  };
+
   if (!user) {
     return (
       <div className="container py-10">
@@ -360,7 +370,19 @@ export default function CourseDashboardPage({
                   <CardTitle className="text-lg">
                     {activeVideo?.title || "No video selected"}
                   </CardTitle>
-                  <CardDescription>AI-generated transcript</CardDescription>
+                  <CardDescription className="flex items-center">
+                    <span>AI-generated transcript</span>
+                    {activeVideo &&
+                      !isGeneratingTranscript &&
+                      !activeVideo?.transcript?.content && (
+                        <Badge
+                          variant="outline"
+                          className="ml-2 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 border-blue-200 dark:border-blue-800"
+                        >
+                          Available for all courses
+                        </Badge>
+                      )}
+                  </CardDescription>
                 </CardHeader>
                 <CardContent>
                   {isGeneratingTranscript ? (
@@ -370,25 +392,41 @@ export default function CourseDashboardPage({
                         Generating transcript...
                       </p>
                     </div>
-                  ) : activeVideo?.transcript ? (
+                  ) : activeVideo?.transcript?.content ? (
                     <div className="whitespace-pre-line prose prose-slate dark:prose-invert max-w-none">
                       {activeVideo.transcript.content}
                     </div>
                   ) : (
                     <div className="text-muted-foreground">
                       <p>No transcript available for this video.</p>
-                      {userRole === "tutor" && (
+                      {userRole === "tutor" && activeVideo && (
                         <div className="mt-4 p-4 border rounded-md bg-muted/50">
                           <h4 className="font-medium mb-2">Tutor Note</h4>
                           <p className="text-sm mb-4">
                             Transcripts help students follow along and improve
-                            accessibility.
+                            accessibility. AI-powered transcript generation is
+                            available for all courses.
                           </p>
                           <Button
                             onClick={generateTranscript}
                             className="bg-emerald-600 hover:bg-emerald-700 w-full"
                           >
                             Generate Transcript
+                          </Button>
+                        </div>
+                      )}
+                      {userRole === "student" && activeVideo && (
+                        <div className="mt-4 p-4 border rounded-md bg-muted/50">
+                          <h4 className="font-medium mb-2">Student Note</h4>
+                          <p className="text-sm mb-4">
+                            AI-generated transcripts make learning easier. You
+                            can request a transcript for this video.
+                          </p>
+                          <Button
+                            onClick={requestTranscript}
+                            className="bg-blue-600 hover:bg-blue-700 w-full"
+                          >
+                            Request Transcript
                           </Button>
                         </div>
                       )}

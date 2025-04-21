@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   FileText,
@@ -10,8 +10,33 @@ import {
   Star,
   Users,
 } from "lucide-react";
+import { useAuth } from "@/components/auth/auth-provider";
+import { CourseService } from "@/lib/services/course-service";
+import { CourseReviews } from "@/components/courses/course-reviews";
 
-export function CourseTabs() {
+interface CourseTabsProps {
+  courseId?: string;
+}
+
+export function CourseTabs({ courseId }: CourseTabsProps) {
+  const { user } = useAuth();
+  const [isEnrolled, setIsEnrolled] = useState(false);
+  
+  useEffect(() => {
+    const checkEnrollment = async () => {
+      if (!user || !courseId) return;
+      
+      try {
+        const enrolled = await CourseService.isEnrolled(courseId, user.id);
+        setIsEnrolled(enrolled);
+      } catch (error) {
+        console.error("Error checking enrollment status:", error);
+      }
+    };
+    
+    checkEnrollment();
+  }, [user, courseId]);
+
   return (
     <Tabs defaultValue="overview" className="w-full">
       <TabsList className="w-full md:w-auto grid grid-cols-3 md:inline-flex h-auto p-1 bg-muted/50 rounded-lg">
@@ -215,116 +240,17 @@ export function CourseTabs() {
       </TabsContent>
 
       <TabsContent value="reviews" className="pt-6">
-        <div className="space-y-6">
-          <div className="flex items-center gap-4">
-            <div className="rounded-lg bg-muted/50 p-4 text-center">
-              <div className="text-3xl font-bold">4.8</div>
-              <div className="flex gap-1 text-yellow-500">
-                {[...Array(5)].map((_, i) => (
-                  <Star key={i} className="h-4 w-4 fill-current" />
-                ))}
-              </div>
-              <div className="text-sm text-muted-foreground mt-1">
-                Course Rating
-              </div>
-            </div>
-            <div className="flex-1">
-              <div className="space-y-2">
-                {[5, 4, 3, 2, 1].map((rating) => (
-                  <div key={rating} className="flex items-center gap-2">
-                    <div className="text-sm w-2">{rating}</div>
-                    <div className="h-2 flex-1 bg-muted rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-yellow-500"
-                        style={{
-                          width: `${
-                            rating === 5
-                              ? 75
-                              : rating === 4
-                              ? 18
-                              : rating === 3
-                              ? 5
-                              : rating === 2
-                              ? 1
-                              : 1
-                          }%`,
-                        }}
-                      ></div>
-                    </div>
-                    <div className="text-sm w-8 text-muted-foreground">
-                      {rating === 5
-                        ? "75%"
-                        : rating === 4
-                        ? "18%"
-                        : rating === 3
-                        ? "5%"
-                        : rating === 2
-                        ? "1%"
-                        : "1%"}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+        {courseId ? (
+          <CourseReviews courseId={courseId} isEnrolled={isEnrolled} />
+        ) : (
+          <div className="text-center py-10 border rounded-lg">
+            <Star className="h-10 w-10 mx-auto text-gray-400 mb-3" />
+            <h3 className="text-lg font-medium mb-1">No reviews available</h3>
+            <p className="text-muted-foreground">
+              Reviews will be available once the course is loaded.
+            </p>
           </div>
-
-          <div className="space-y-4">
-            <h2 className="text-xl font-semibold">Recent Reviews</h2>
-            {/* Reviews will be populated */}
-            {[
-              {
-                name: "Sarah Johnson",
-                date: "2 weeks ago",
-                rating: 5,
-                comment:
-                  "This course exceeded my expectations. The instructor's explanations were clear and the projects were engaging. Highly recommend!",
-              },
-              {
-                name: "Michael Chen",
-                date: "1 month ago",
-                rating: 4,
-                comment:
-                  "Very comprehensive course with lots of practical examples. Would have liked a bit more on advanced topics.",
-              },
-              {
-                name: "Emma Wilson",
-                date: "2 months ago",
-                rating: 5,
-                comment:
-                  "The best online course I've taken so far. The instructor clearly knows the subject matter well and presents it in an accessible way.",
-              },
-            ].map((review, index) => (
-              <div key={index} className="border rounded-lg p-4">
-                <div className="flex justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-r from-emerald-400 to-blue-500 flex items-center justify-center text-white font-bold">
-                      {review.name.charAt(0)}
-                    </div>
-                    <div>
-                      <div className="font-medium">{review.name}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {review.date}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex gap-0.5 text-yellow-500">
-                    {[...Array(5)].map((_, i) => (
-                      <Star
-                        key={i}
-                        className={`h-4 w-4 ${
-                          i < review.rating ? "fill-current" : ""
-                        }`}
-                      />
-                    ))}
-                  </div>
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  {review.comment}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
+        )}
       </TabsContent>
     </Tabs>
   );

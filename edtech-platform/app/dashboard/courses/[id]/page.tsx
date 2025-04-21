@@ -33,6 +33,7 @@ import {
 import { toast } from "@/components/ui/use-toast";
 import { createClient } from "@/lib/supabase/client";
 import { TranscriptService } from "@/lib/services/transcript-service";
+import { CourseActions } from "@/components/courses/course-actions";
 
 export default function CourseDashboardPage({
   params,
@@ -309,12 +310,13 @@ export default function CourseDashboardPage({
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold">{course.title}</h1>
         {userRole === "tutor" && (
-          <Button asChild variant="outline">
-            <Link href={`/dashboard/courses/${course.id}/edit`}>
-              <Edit className="mr-2 h-4 w-4" />
-              Edit Course
-            </Link>
-          </Button>
+          <div className="flex items-center gap-2">
+            <CourseActions
+              courseId={course.id}
+              courseTitle={course.title}
+              isTutor={true}
+            />
+          </div>
         )}
       </div>
 

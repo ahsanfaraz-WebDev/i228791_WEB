@@ -1,9 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { use } from "react";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
 import React from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -38,12 +37,63 @@ interface CourseParams {
   id: string;
 }
 
-export default async function CoursePage({ params }: CourseParams) {
-  // Fetch course data
-  const course = await CourseService.getCourseById(params.id);
+export default function CoursePage() {
+  // Get params using useParams hook instead
+  const params = useParams();
+  const courseId = params?.id as string;
 
-  if (!course) {
-    notFound();
+  const [course, setCourse] = useState<Course | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch course data on component mount
+  useEffect(() => {
+    async function fetchCourseData() {
+      if (!courseId) return;
+
+      try {
+        setIsLoading(true);
+        const courseData = await CourseService.getCourseById(courseId);
+
+        if (!courseData) {
+          setError("Course not found");
+          return;
+        }
+
+        setCourse(courseData);
+      } catch (err) {
+        console.error("Error fetching course:", err);
+        setError("Failed to load course data");
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    fetchCourseData();
+  }, [courseId]);
+
+  if (isLoading) {
+    return (
+      <div className="container py-10">
+        <div className="flex items-center justify-center h-64">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600"></div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !course) {
+    return (
+      <div className="container py-10">
+        <h1 className="text-2xl font-bold mb-6">Course Not Found</h1>
+        <p>
+          The course you're looking for doesn't exist or couldn't be loaded.
+        </p>
+        <Button asChild className="mt-4">
+          <a href="/courses">Back to Courses</a>
+        </Button>
+      </div>
+    );
   }
 
   return (
@@ -63,7 +113,7 @@ export default async function CoursePage({ params }: CourseParams) {
         <div className="space-y-6">
           <div className="bg-white dark:bg-gray-900 border rounded-lg overflow-hidden">
             <h2 className="text-lg font-semibold p-4 border-b">Course Chat</h2>
-            <ChatInterface courseId={params.id} />
+            <ChatInterface courseId={courseId} />
           </div>
         </div>
       </div>

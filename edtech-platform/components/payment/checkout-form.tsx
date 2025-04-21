@@ -204,17 +204,17 @@ export function Checkout({ courseId, courseTitle, price }: CheckoutProps) {
                 )}
               </div>
             )}
-            <Elements
-              stripe={stripePromise}
-              options={{
-                clientSecret,
-                appearance: {
-                  theme: "stripe",
-                },
-              }}
-            >
-              <CheckoutForm courseId={courseId} />
-            </Elements>
+          <Elements
+            stripe={stripePromise}
+            options={{
+              clientSecret,
+              appearance: {
+                theme: "stripe",
+              },
+            }}
+          >
+            <CheckoutForm courseId={courseId} />
+          </Elements>
           </>
         ) : (
           <div className="py-8 flex items-center justify-center">

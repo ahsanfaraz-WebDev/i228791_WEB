@@ -88,48 +88,88 @@ export const CourseService = {
 
   // Get a single course by ID
   async getCourseById(id: string) {
-    const supabase = createClient();
+    try {
+      const supabase = createClient();
 
-    const { data, error } = await supabase
-      .from("courses")
-      .select(
+      if (!id) {
+        console.error("Invalid course ID provided");
+        return null;
+      }
+
+      const { data, error } = await supabase
+        .from("courses")
+        .select(
+          `
+          *,
+          tutor:profiles(id, full_name, avatar_url, bio)
         `
-        *,
-        tutor:profiles(id, full_name, avatar_url, bio)
-      `
-      )
-      .eq("id", id)
-      .single();
+        )
+        .eq("id", id)
+        .single();
 
-    if (error) {
-      console.error(`Error fetching course with ID ${id}:`, error);
-      throw error;
+      if (error) {
+        if (error.code === "PGRST116") {
+          // Record not found error code
+          console.warn(`Course with ID ${id} not found`);
+          return null;
+        }
+        console.error(`Error fetching course with ID ${id}:`, error);
+        throw new Error(`Failed to fetch course: ${error.message}`);
+      }
+
+      if (!data) {
+        console.warn(`No data returned for course with ID ${id}`);
+        return null;
+      }
+
+      return data as Course;
+    } catch (err) {
+      console.error(`Error in getCourseById for ID ${id}:`, err);
+      throw new Error(
+        `Failed to fetch course: ${
+          err instanceof Error ? err.message : String(err)
+        }`
+      );
     }
-
-    return data as Course;
   },
 
   // Get videos for a course
   async getCourseVideos(courseId: string) {
-    const supabase = createClient();
+    try {
+      const supabase = createClient();
 
-    const { data, error } = await supabase
-      .from("videos")
-      .select(
+      if (!courseId) {
+        console.error("Invalid course ID provided");
+        return [];
+      }
+
+      const { data, error } = await supabase
+        .from("videos")
+        .select(
+          `
+          *,
+          transcript:transcripts(id, content)
         `
-        *,
-        transcript:transcripts(id, content)
-      `
-      )
-      .eq("course_id", courseId)
-      .order("position", { ascending: true });
+        )
+        .eq("course_id", courseId)
+        .order("position", { ascending: true });
 
-    if (error) {
-      console.error(`Error fetching videos for course ${courseId}:`, error);
-      throw error;
+      if (error) {
+        console.error(`Error fetching videos for course ${courseId}:`, error);
+        throw new Error(`Failed to fetch course videos: ${error.message}`);
+      }
+
+      if (!data) {
+        console.warn(`No videos found for course with ID ${courseId}`);
+        return [];
+      }
+
+      return data as Video[];
+    } catch (err) {
+      console.error(`Error in getCourseVideos for course ID ${courseId}:`, err);
+      // Return empty array instead of throwing to make UI more resilient
+      return [];
     }
-
-    return data as Video[];
   },
 
   // Create a new course
@@ -598,5 +638,57 @@ export const CourseService = {
     }
 
     return data as Course[];
+  },
+
+  // Enroll a student directly in a free course
+  async enrollStudent(studentId: string, courseId: string) {
+    try {
+      if (!studentId || !courseId) {
+        console.error("Invalid student ID or course ID");
+        throw new Error("Invalid enrollment parameters");
+      }
+
+      const supabase = createClient();
+
+      // Check if student is already enrolled
+      const isAlreadyEnrolled = await this.isEnrolled(courseId, studentId);
+      if (isAlreadyEnrolled) {
+        console.log(`Student ${studentId} is already enrolled in course ${courseId}`);
+        return true;
+      }
+
+      // Create a new enrollment for free course (no payment ID needed)
+      const { data, error } = await supabase
+        .from("enrollments")
+        .insert({
+          course_id: courseId,
+          student_id: studentId,
+          payment_status: "free", // Indicate this was a free enrollment
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error(`Error enrolling student ${studentId} in course ${courseId}:`, error);
+        throw new Error(`Enrollment failed: ${error.message}`);
+      }
+
+      // Update the course's student count
+      await supabase
+        .from("courses")
+        .update({
+          student_count: supabase.rpc("increment", {
+            row_id: courseId,
+            table_name: "courses",
+            column_name: "student_count",
+          }),
+        })
+        .eq("id", courseId);
+
+      return true;
+    } catch (err) {
+      console.error("Error in enrollStudent:", err);
+      throw new Error(`Failed to enroll in course: ${err instanceof Error ? err.message : String(err)}`);
+    }
   },
 };

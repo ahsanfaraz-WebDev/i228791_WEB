@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -50,8 +50,11 @@ const courseFormSchema = z.object({
 
 type CourseFormValues = z.infer<typeof courseFormSchema>;
 
-export default function EditCoursePage({ params }: { params: { id: string } }) {
+export default function EditCoursePage() {
   const router = useRouter();
+  const params = useParams();
+  const courseId = params?.id as string;
+  
   const { user } = useAuth();
   const [course, setCourse] = useState<Course | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -71,9 +74,30 @@ export default function EditCoursePage({ params }: { params: { id: string } }) {
 
   useEffect(() => {
     const fetchCourse = async () => {
+      if (!courseId) {
+        toast({
+          title: "Error",
+          description: "Course ID is missing",
+          variant: "destructive",
+        });
+        router.push("/dashboard");
+        return;
+      }
+
       try {
         setIsLoading(true);
-        const courseData = await CourseService.getCourseById(params.id);
+        const courseData = await CourseService.getCourseById(courseId);
+        
+        if (!courseData) {
+          toast({
+            title: "Error",
+            description: "Course not found",
+            variant: "destructive",
+          });
+          router.push("/dashboard");
+          return;
+        }
+        
         setCourse(courseData);
 
         // Verify if the logged-in user is the tutor of the course
@@ -103,6 +127,7 @@ export default function EditCoursePage({ params }: { params: { id: string } }) {
           description: `Failed to load course: ${error.message}`,
           variant: "destructive",
         });
+        router.push("/dashboard");
       } finally {
         setIsLoading(false);
       }
@@ -111,14 +136,14 @@ export default function EditCoursePage({ params }: { params: { id: string } }) {
     if (user) {
       fetchCourse();
     }
-  }, [params.id, user, router, form]);
+  }, [courseId, user, router, form]);
 
   const onSubmit = async (data: CourseFormValues) => {
-    if (!user || !course) return;
+    if (!user || !course || !courseId) return;
 
     try {
       setIsSaving(true);
-      await CourseService.updateCourse(params.id, data);
+      await CourseService.updateCourse(courseId, data);
 
       toast({
         title: "Course Updated",

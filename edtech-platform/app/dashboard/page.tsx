@@ -38,6 +38,7 @@ import {
   LearningStats,
   FeatureCard,
 } from "@/components/dashboard/dashboard-3d";
+import { CourseActions } from "@/components/courses/course-actions";
 
 // Define a generic type for courses that may or may not have progress
 type CourseWithOptionalProgress = Course & {
@@ -419,6 +420,15 @@ export default function DashboardPage() {
                           course.level?.slice(1) || "Intermediate"}
                       </p>
                     </div>
+                    {userRole === "tutor" && (
+                      <div className="absolute top-2 right-2">
+                        <CourseActions
+                          courseId={course.id}
+                          courseTitle={course.title}
+                          isTutor={true}
+                        />
+                      </div>
+                    )}
                   </div>
                   <CardHeader>
                     <CardTitle className="line-clamp-1">

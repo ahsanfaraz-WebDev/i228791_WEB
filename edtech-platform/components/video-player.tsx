@@ -43,6 +43,7 @@ export function VideoPlayer({
   const [currentTranscriptSegment, setCurrentTranscriptSegment] = useState("");
   const [hasInitialized, setHasInitialized] = useState(false);
   const [isVideoLoaded, setIsVideoLoaded] = useState(false);
+  const [thumbnailError, setThumbnailError] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const playerRef = useRef<HTMLDivElement>(null);
@@ -213,6 +214,29 @@ export function VideoPlayer({
   return (
     <div ref={playerRef} className="relative group">
       <div className="relative aspect-video bg-black">
+        {!isPlaying && !isVideoLoaded && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black z-10">
+            {thumbnailError ? (
+              // Fallback for thumbnail error
+              <div className="flex flex-col items-center justify-center w-full h-full bg-gray-800">
+                <div className="text-white text-lg font-medium mb-2">
+                  {title}
+                </div>
+                <Play className="h-12 w-12 text-white opacity-70" />
+              </div>
+            ) : (
+              <Image
+                src={thumbnailUrl || "/placeholder.svg"}
+                alt={title}
+                fill
+                className="object-cover"
+                onError={() => setThumbnailError(true)}
+                priority
+              />
+            )}
+          </div>
+        )}
+
         <video
           ref={videoRef}
           className="w-full h-full"
@@ -221,7 +245,7 @@ export function VideoPlayer({
           onEnded={() => setIsPlaying(false)}
           onPlay={() => setIsPlaying(true)}
           onPause={() => setIsPlaying(false)}
-          poster={thumbnailUrl || "/placeholder.svg"}
+          poster={thumbnailError ? "/placeholder.svg" : thumbnailUrl}
         >
           <source src={videoUrl} type="video/mp4" />
           Your browser does not support the video tag.
